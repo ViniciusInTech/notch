@@ -1,0 +1,19 @@
+name: macOS
+on:
+  push:
+  pull_request:
+jobs:
+  verify:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: swift --version
+      - name: Test
+        run: ./scripts/test.sh
+      - name: Build drag-to-install disk image
+        run: ./scripts/package-dmg.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Notch-macOS
+          path: dist/*.dmg

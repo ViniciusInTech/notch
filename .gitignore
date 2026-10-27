@@ -1,0 +1,14 @@
+.DS_Store
+.build/
+.swiftpm/
+build/
+dist/
+work/
+.superpowers/
+docs/superpowers/
+.Codex/
+*.xcuserstate
+xcuserdata/
+*.p12
+*.mobileprovision
+.env
