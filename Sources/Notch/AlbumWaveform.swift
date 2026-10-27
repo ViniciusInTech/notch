@@ -66,7 +66,7 @@ final class AlbumWaveformView: NSView {
     private func updateAnimation() {
         let shouldAnimate = wantsAnimation && window != nil && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         guard shouldAnimate != animating else { return }
-        if !shouldAnimate { stop(); return }
+        if !shouldAnimate { settle(); return }
         animating = true
         for (index, bar) in bars.enumerated() {
             let wave = CAKeyframeAnimation(keyPath: "transform.scale.y")
@@ -78,6 +78,26 @@ final class AlbumWaveformView: NSView {
             wave.repeatCount = .infinity
             wave.preferredFrameRateRange = CAFrameRateRange(minimum: 15, maximum: 30, preferred: 24)
             bar.add(wave, forKey: "album-wave")
+        }
+    }
+
+    /// Pausing eases each bar from where it is to rest instead of freezing mid-wave.
+    private func settle() {
+        guard animating, window != nil, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { stop(); return }
+        animating = false
+        for (index, bar) in bars.enumerated() {
+            let current = bar.presentation()?.value(forKeyPath: "transform.scale.y") as? CGFloat ?? restingScales[index]
+            bar.removeAnimation(forKey: "album-wave")
+            let ease = CABasicAnimation(keyPath: "transform.scale.y")
+            ease.fromValue = current
+            ease.toValue = restingScales[index]
+            ease.duration = 0.35
+            ease.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            bar.transform = CATransform3DMakeScale(1, restingScales[index], 1)
+            CATransaction.commit()
+            bar.add(ease, forKey: "album-settle")
         }
     }
 

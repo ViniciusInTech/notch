@@ -6,10 +6,10 @@ struct NotchCoreTests {
     @Test func testOutwardShouldersPreserveBodyAndFitSmallScreens() {
         let layout = IslandLayout(notchWidth: 180, notchHeight: 32, screenWidth: 1512)
         #expect(layout.outerSize(active: false, expanded: false).width == 204)
-        #expect(layout.outerSize(active: true, expanded: true).width == 504)
+        #expect(layout.outerSize(active: true, expanded: true).width == 484)
         let small = IslandLayout(notchWidth: 180, notchHeight: 32, screenWidth: 320)
         #expect(small.outerSize(active: true, expanded: true).width <= 304)
-        #expect(small.outerSize(active: true, expanded: true).height == 214)
+        #expect(small.outerSize(active: true, expanded: true).height == 128)
     }
     @Test func testAlbumAccentUsesDominantColorAndIgnoresTransparentPixels() {
         let pixels: [UInt8] = [220, 45, 30, 255, 220, 45, 30, 255, 20, 60, 220, 255, 0, 255, 0, 0]
@@ -32,14 +32,14 @@ struct NotchCoreTests {
         #expect(layout.size(active: true, expanded: false).width == 284)
         #expect(layout.size(active: true, expanded: false).height == 32)
         #expect(layout.size(active: false, expanded: false).height == 32)
-        #expect(layout.size(active: true, expanded: true).height == 214)
+        #expect(layout.size(active: true, expanded: true).height == 128)
     }
 
     @Test func testExpandedPanelIsCompactAndCanFitTwoActivitiesAtRest() {
         let layout = IslandLayout(notchWidth: 180, notchHeight: 32, screenWidth: 1512)
         let size = layout.size(active: true, expanded: true)
-        #expect(size.width == 480)
-        #expect(size.height == 214)
+        #expect(size.width == 460)
+        #expect(size.height == 128)
         #expect(layout.size(active: true, expanded: false, activityCount: 2).width == 364)
         #expect(layout.size(active: true, expanded: false, activityCount: 2).height == 32)
         #expect(layout.size(active: false, expanded: true).width == size.width)
@@ -71,6 +71,18 @@ struct NotchCoreTests {
         }
         #expect(PomodoroPhase.shortBreak.minutes == 5)
         #expect(PomodoroPhase.longBreak.minutes == 15)
+    }
+
+    @Test func testOffersMoveOnlyForDownloadedCopies() {
+        let home = "/Users/ana"
+        #expect(InstallLocation.shouldOfferMove(bundlePath: "/Volumes/Notch/Notch.app", homeDirectory: home))
+        #expect(InstallLocation.shouldOfferMove(bundlePath: "/Users/ana/Downloads/Notch.app", homeDirectory: home))
+        #expect(InstallLocation.shouldOfferMove(bundlePath: "/private/var/folders/x/AppTranslocation/ABC/d/Notch.app", homeDirectory: home))
+        #expect(!InstallLocation.shouldOfferMove(bundlePath: "/Applications/Notch.app", homeDirectory: home))
+        #expect(!InstallLocation.shouldOfferMove(bundlePath: "/Users/ana/Applications/Notch.app", homeDirectory: home))
+        #expect(!InstallLocation.shouldOfferMove(bundlePath: "/Users/ana/Develop/notch/dist/Notch.app", homeDirectory: home))
+        #expect(InstallLocation.mountedVolume(bundlePath: "/Volumes/Notch 1/Notch.app") == "/Volumes/Notch 1")
+        #expect(InstallLocation.mountedVolume(bundlePath: "/Users/ana/Downloads/Notch.app") == nil)
     }
 
     @Test func testExpandedWidthFitsSmallScreen() {

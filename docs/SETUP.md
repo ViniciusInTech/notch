@@ -5,17 +5,22 @@
 ## 1. Instale em Aplicativos
 
 1. Baixe o `.dmg` pela [página de download](DOWNLOAD.md).
-2. Se uma versão anterior estiver aberta, conclua o timer e clique em **Quit**.
+2. Se uma versão anterior estiver aberta, conclua o timer que quiser preservar.
 3. Abra o `.dmg` com dois cliques.
-4. Arraste **Notch.app** para **Applications / Aplicativos**.
+4. Arraste **Notch** para **Aplicativos**, como indica a seta na janela.
 5. Ejete o disco Notch no Finder.
 6. Abra **Aplicativos → Notch**. Use essa cópia no dia a dia.
+
+Se abrir o Notch direto do `.dmg` ou de Downloads, ele pergunta se pode se mover
+para Aplicativos. Ao aceitar, encerra a versão anterior, copia o app, reabre a
+nova cópia e ejeta o disco. Desligue a pergunta em **Configurações → Geral**.
 
 O Notch aparece na barra de menus e junto ao recorte da câmera. Passe o mouse
 para expandir ou abra **Notch → Abrir ilha** pelo menu.
 
-A versão de desenvolvimento usa assinatura ad hoc e não é notarizada. O macOS
-pode solicitar uma confirmação adicional na primeira abertura. Consulte as
+Instaladores assinados com Developer ID e notarizados mostram apenas a
+confirmação padrão do macOS. Builds com assinatura ad hoc exigem liberar o app em
+**Ajustes do Sistema → Privacidade e Segurança → Abrir Mesmo Assim**. Consulte as
 [orientações da Apple sobre abrir apps com segurança](https://support.apple.com/pt-br/102445)
 para avaliar a origem e a autorização do aplicativo.
 

@@ -27,6 +27,13 @@ import UserNotifications
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        Task { @MainActor in
+            if await ApplicationMover.moveIfAccepted(preferences: Self.model.preferences) { return }
+            self.launch()
+        }
+    }
+
+    private func launch() {
         let identifier = Bundle.main.bundleIdentifier ?? "dev.vinicius.Notch"
         if NSRunningApplication.runningApplications(withBundleIdentifier: identifier).filter({ $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }).count > 0 {
             NSApp.terminate(nil)

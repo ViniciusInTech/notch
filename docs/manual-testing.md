@@ -11,6 +11,10 @@ verificados durante o desenvolvimento; repita-os para cada versão relevante.
 - [x] Imagem DMG aberta com dois cliques, contendo app e atalho Applications.
 - [ ] Instalar em Aplicativos num segundo Mac compatível.
 - [ ] Conferir a experiência de primeira abertura em um Mac sem permissões anteriores.
+- [x] Janela do DMG com fundo, seta e ícones posicionados.
+- [ ] Abrir pelo DMG e aceitar "Mover para Aplicativos": cópia, reabertura e ejeção.
+- [ ] Mover com uma versão anterior aberta: a anterior é encerrada e substituída.
+- [ ] DMG assinado, notarizado e grampeado abre só com a confirmação padrão.
 
 ## Interface e atividades
 
@@ -22,6 +26,11 @@ verificados durante o desenvolvimento; repita-os para cada versão relevante.
 - [ ] Conferir as duas ordens de início no notch com música e timer reais.
 - [ ] Conferir abertura contínua a partir do recorte, sem salto para o tamanho final.
 - [ ] Passar e retirar o mouse rapidamente sem flicker ou controles presos.
+- [ ] Passar de raspão pela ilha (menos de 80 ms) não abre o painel.
+- [ ] Abertura com leve quique, conteúdo entra escalonado com desfoque.
+- [ ] Indicador das abas desliza; dígitos do timer rolam; play/pausa se transforma.
+- [ ] Etapa concluída e permissão pendente na ilha recolhida.
+- [ ] Arrastar na barra de progresso faz seek; a barra engrossa no hover.
 - [ ] Conferir encaixes côncavos do topo e cantos inferiores em fundos claros e escuros.
 - [ ] Confirmar que hover e recolhimento preservam o foco do app anterior.
 - [ ] Conferir tela cheia, Spaces e conectar/desconectar monitores.

@@ -22,7 +22,11 @@ cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 cp "$ROOT/LICENSE" "$ROOT/NOTICE" "$APP/Contents/Resources/"
 plutil -lint "$APP/Contents/Info.plist"
-codesign --force --sign "${CODE_SIGN_IDENTITY:--}" --options runtime --entitlements "$ROOT/Resources/Notch.entitlements" "$APP"
+IDENTITY="${CODE_SIGN_IDENTITY:--}"
+SIGN_ARGS=(--force --sign "$IDENTITY" --options runtime --entitlements "$ROOT/Resources/Notch.entitlements")
+# Notarization requires a secure timestamp; ad hoc signatures cannot carry one.
+if [[ "$IDENTITY" != "-" ]]; then SIGN_ARGS+=(--timestamp); fi
+codesign "${SIGN_ARGS[@]}" "$APP"
 codesign --verify --strict "$APP"
 if [[ -e "$TARGET" ]]; then mv "$TARGET" "$STAGE/Previous.app"; fi
 mv "$APP" "$TARGET"

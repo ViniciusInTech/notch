@@ -17,8 +17,15 @@ import NotchCore
     @Published private(set) var activityOrder = ActivityOrder()
     @Published private(set) var pomodoro = PomodoroCycle()
     @Published private(set) var timerIsPomodoro = false
+    @Published private(set) var completionTitle = "Concluído"
+    @Published private(set) var timerDuration: TimeInterval = 1500
+    /// A running source whose Automation access failed; shown only while nothing else is active.
+    @Published private(set) var attention: MediaSource?
 
-    var active: Bool { media?.isPlaying == true || countdown.isActive || completionVisible }
+    var showsAttention: Bool { attention != nil && activityOrder.items.isEmpty && !completionVisible }
+    var active: Bool { media?.isPlaying == true || countdown.isActive || completionVisible || showsAttention }
+    /// The collapsed island needs both ears for two activities or a short status label.
+    var compactIsWide: Bool { activityOrder.items.count > 1 || completionVisible || showsAttention }
     private let runner = AutomationRunner()
     private var spotifySnapshot: MediaSnapshot?
     private var browserSnapshot: MediaSnapshot?
@@ -75,7 +82,20 @@ import NotchCore
 
     func retryConnections() {
         errors = [:]
+        attention = nil
         Task { await refresh(force: true) }
+    }
+
+    /// Remaining fraction of the running timer; a full ring when idle.
+    func timerProgress(at date: Date) -> Double {
+        guard countdown.isActive, timerDuration > 0 else { return 1 }
+        return countdown.remaining(at: date) / timerDuration
+    }
+
+    func openAutomationSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     private func isRunning(_ source: MediaSource) -> Bool {
@@ -102,6 +122,8 @@ import NotchCore
         }
         let chosen = MediaSelection.choose(spotify: spotifySnapshot, browser: browserSnapshot)
         if media != chosen { media = chosen; artwork.load(chosen?.artworkURL) }
+        let blocked = errors.isEmpty ? nil : MediaSource.allCases.first { errors[$0] != nil && isRunning($0) }
+        if attention != blocked { attention = blocked }
         synchronizeActivities()
     }
 
@@ -124,7 +146,8 @@ import NotchCore
         guard minutes.isFinite, minutes > 0 else { return }
         completionVisible = false
         completionTask?.cancel()
-        countdown.start(seconds: min(1440, minutes) * 60)
+        timerDuration = min(1440, minutes) * 60
+        countdown.start(seconds: timerDuration)
         timerIsPomodoro = false
         synchronizeActivities()
         scheduleTimer()
@@ -179,7 +202,10 @@ import NotchCore
 
     private func checkTimer() {
         guard countdown.completeIfNeeded() else { return }
-        if timerIsPomodoro { pomodoro.complete() }
+        if timerIsPomodoro {
+            pomodoro.complete()
+            completionTitle = pomodoro.phase == .work ? "Foco pronto" : "Pausa pronta"
+        } else { completionTitle = "Concluído" }
         timerIsPomodoro = false
         synchronizeActivities()
         completionVisible = true

@@ -12,6 +12,8 @@ public struct IslandSize: Equatable, Sendable {
 
 public struct IslandLayout: Equatable {
     public static let shoulderWidth = 12.0
+    /// Space below the notch row: one content row plus the progress or phase row.
+    public static let expandedBodyHeight = 96.0
     public let notchWidth: Double
     public let notchHeight: Double
     public let screenWidth: Double
@@ -24,8 +26,9 @@ public struct IslandLayout: Equatable {
 
     public func size(active: Bool, expanded: Bool, activityCount: Int = 1) -> IslandSize {
         let wings = activityCount > 1 ? 184.0 : 104.0
-        let width = expanded ? max(480, notchWidth + 120) : notchWidth + (active ? wings : 0)
-        return IslandSize(width: min(width, screenWidth - 16 - 2 * Self.shoulderWidth), height: expanded ? 214 : notchHeight)
+        // Expanded ears hold the tab switcher and actions beside the camera.
+        let width = expanded ? max(460, notchWidth + 280) : notchWidth + (active ? wings : 0)
+        return IslandSize(width: min(width, screenWidth - 16 - 2 * Self.shoulderWidth), height: expanded ? notchHeight + Self.expandedBodyHeight : notchHeight)
     }
 
     public func outerSize(active: Bool, expanded: Bool, activityCount: Int = 1) -> IslandSize {

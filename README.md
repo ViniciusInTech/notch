@@ -15,7 +15,7 @@
 </div>
 
 <p align="center">
-  <img src="docs/assets/notch-music.png" width="900" alt="Captura real do Notch com capa do álbum, controles de música e Pomodoro em andamento na outra aba">
+  <img src="docs/assets/notch-music.png" width="760" alt="Captura real do Notch aberto na aba Música, com capa, título, artista, controles e barra de progresso, e o timer em andamento indicado na outra aba">
 </p>
 
 ## Por que criei o Notch
@@ -37,7 +37,7 @@ quer deixar alguma parte melhor? Abra uma issue ou envie um pull request.
 ### Discreto quando precisa ser
 
 <p align="center">
-  <img src="docs/assets/notch-compact.png" width="540" alt="Captura real da ilha recolhida, junto ao recorte da câmera do Mac">
+  <img src="docs/assets/notch-compact.png" width="560" alt="Captura real da ilha recolhida junto ao recorte da câmera, com capa e ondas à esquerda e o anel do timer com o tempo restante à direita">
 </p>
 
 A ilha cresce só para os lados quando há atividade. Ao passar o mouse, abre
@@ -47,7 +47,7 @@ superiores acompanham o formato do recorte do Mac.
 ### Seu Pomodoro continua, sua música também
 
 <p align="center">
-  <img src="docs/assets/notch-pomodoro.png" width="760" alt="Captura real da aba Pomodoro com uma sessão em andamento e controles de pausa e encerramento">
+  <img src="docs/assets/notch-pomodoro.png" width="760" alt="Captura real da aba de foco com anel de progresso, tempo restante, controles de pausa e encerramento, fases e sessões do Pomodoro">
 </p>
 
 Trocar entre Música e Pomodoro não interrompe a outra atividade. Quando os dois
@@ -81,10 +81,13 @@ O botão baixa o `.dmg` diretamente da pasta [`installers`](installers) deste
 repositório, sem App Store. O arquivo de [checksums](installers/SHA256SUMS.txt)
 permite conferir a integridade do download. Você também pode [compilar o app](#compilar-e-executar).
 
-1. Encerre uma versão anterior pelo botão **Quit**. Conclua antes qualquer timer que queira preservar.
-2. Abra o arquivo `.dmg` com dois cliques.
-3. Arraste **Notch.app** para **Applications / Aplicativos**.
-4. Ejete a imagem e abra o Notch pela pasta **Aplicativos**.
+1. Abra o arquivo `.dmg` com dois cliques.
+2. Arraste **Notch** para **Aplicativos**, como indica a janela.
+3. Abra o Notch pelo Launchpad ou pela pasta **Aplicativos**.
+
+Se você abrir o Notch direto do `.dmg` ou de Downloads, ele oferece se mover
+para Aplicativos sozinho, substituindo uma versão anterior e ejetando a imagem.
+Conclua antes qualquer timer da versão anterior que queira preservar.
 
 O app fica na barra de menus. Para iniciar com o Mac, abra as configurações e
 habilite **Iniciar ao fazer login** depois de instalá-lo em Aplicativos.
@@ -144,6 +147,9 @@ Para gerar o instalador com atalho para Aplicativos:
 ```sh
 ./scripts/package-dmg.sh
 ```
+
+Para publicar sem o alerta de app não verificado, assine com Developer ID e
+notarize: veja [docs/RELEASE.md](docs/RELEASE.md).
 
 Você também pode abrir `Package.swift` no Xcode ou usar `./scripts/run.sh`.
 Use o `.app` empacotado para testar Automação e iniciar no login, pois ele possui

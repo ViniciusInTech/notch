@@ -26,6 +26,7 @@ struct SettingsView: View {
                     if let message = login.message { Text(message).font(.caption).foregroundStyle(.orange) }
                     Text("Mantenha o Notch.app em Aplicativos antes de habilitar esta opção.")
                         .font(.caption).foregroundStyle(.secondary)
+                    Toggle("Oferecer mover para Aplicativos", isOn: $preferences.offerMoveToApplications)
                 }
             }.formStyle(.grouped).tabItem { Label("Geral", systemImage: "slider.horizontal.3") }
 
@@ -46,7 +47,7 @@ struct SettingsView: View {
                 }
                 Section {
                     HStack {
-                        Button("Permissões de Automação") { openAutomation() }
+                        Button("Permissões de Automação") { model.openAutomationSettings() }
                         Button("Tentar novamente") { model.retryConnections() }
                     }
                 }
@@ -81,7 +82,7 @@ struct SettingsView: View {
                 Image(systemName: "rectangle.topthird.inset.filled").font(.system(size: 44, weight: .light))
                 Text("Notch").font(.title)
                 Text("Seu espaço. Sua música.").foregroundStyle(.secondary)
-                Text("0.1.0 · Nativo para macOS").font(.caption).foregroundStyle(.secondary)
+                Text("\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev") · Nativo para macOS").font(.caption).foregroundStyle(.secondary)
                 Text("Sem anúncios, conta ou telemetria.").font(.callout)
             }.frame(maxWidth: .infinity, maxHeight: .infinity).tabItem { Label("Sobre", systemImage: "info.circle") }
         }
@@ -96,12 +97,6 @@ struct SettingsView: View {
         } else {
             Text(model.media?.source == source ? "Conectado" : "Aguardando reprodução no aplicativo.")
                 .font(.caption).foregroundStyle(.secondary)
-        }
-    }
-
-    private func openAutomation() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation") {
-            NSWorkspace.shared.open(url)
         }
     }
 }
