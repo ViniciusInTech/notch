@@ -53,6 +53,27 @@ superiores acompanham o formato do recorte do Mac.
 Trocar entre Música e Pomodoro não interrompe a outra atividade. Quando os dois
 estão ativos, a ilha recolhida mostra os indicadores na ordem em que começaram.
 
+### Seus assistentes de código chamam sem tirar a música
+
+<p align="center">
+  <img src="docs/assets/notch-agent-bubble.png" width="560" alt="Captura real da ilha recolhida com a música tocando e, à direita, uma bolinha separada com o símbolo do Claude, um anel de tempo e o selo de mão indicando pedido de permissão">
+</p>
+
+Quando o Claude Code ou o Codex precisam de você, surge uma bolinha ao lado da
+ilha, como uma segunda atividade da Dynamic Island. O selo indica o tipo: mão
+para permissão, interrogação para pergunta e balão para conclusão. O anel mostra
+quanto tempo resta para responder pela ilha.
+
+<p align="center">
+  <img src="docs/assets/notch-agent-permission.png" width="440" alt="Captura real do mini chat de permissão abaixo da bolinha, com o comando a executar, campo para dizer o que fazer em vez disso e os botões Recusar e Permitir">
+  &nbsp;
+  <img src="docs/assets/notch-agent-question.png" width="440" alt="Captura real do mini chat de pergunta com três opções, campo para outra resposta e botão Enviar">
+</p>
+
+Passe o mouse na bolinha para abrir um mini chat: permita, recuse, escreva o
+que o assistente deve fazer em vez disso ou escolha uma das opções que ele
+oferece. Enquanto o mini chat está aberto, nada muda sozinho.
+
 *As imagens são capturas reais do aplicativo; as faixas e os tempos exibidos variam durante o uso.*
 
 ## O que o Notch faz
@@ -60,11 +81,12 @@ estão ativos, a ilha recolhida mostra os indicadores na ordem em que começaram
 - **Música à mão:** capa, faixa, artista, reprodução, anterior/próxima e progresso.
 - **Spotify sem conta extra:** integração com o app instalado, sem chave de API.
 - **Navegador opcional:** mídia HTML5 da aba ativa do Safari ou Google Chrome.
-- **Pomodoro integrado:** sessões de 25 minutos, pausas de 5 e pausa longa de 15 após quatro sessões.
+- **Pomodoro configurável:** duração de foco e pausas, número de sessões por ciclo e início automático opcional.
+- **Avisos de assistentes:** Claude Code e Codex pedem permissões, aprovação de planos e respostas pela ilha; Claude, Codex e Cursor avisam ao concluir.
 - **Atividades simultâneas:** música e contagem continuam ao trocar de aba.
 - **Ondas nas cores da capa:** animação decorativa, sem capturar ou analisar áudio.
 - **Configurações nativas:** iniciar no login, reduzir movimento e som ao concluir.
-- **Saída fácil:** botão Quit no painel e opção de sair pela barra de menus.
+- **Saída fácil:** botão Quit no próprio painel.
 
 Sem anúncios, conta própria, telemetria, Electron ou servidor local. A prioridade
 é manter uma experiência simples e discreta, com baixo consumo de recursos.
@@ -85,11 +107,32 @@ permite conferir a integridade do download. Você também pode [compilar o app](
 2. Arraste **Notch** para **Aplicativos**, como indica a janela.
 3. Abra o Notch pelo Launchpad ou pela pasta **Aplicativos**.
 
+> [!IMPORTANT]
+> **“A Apple não pôde verificar se o Notch está livre de malware”**
+>
+> Esse aviso aparece porque o Notch não é **notarizado** pela Apple. A
+> notarização exige o Apple Developer Program, que custa US$ 99 por ano, e o
+> custo é o único motivo de ela ainda não existir aqui. O aviso não indica que
+> algo suspeito foi encontrado no app.
+>
+> O Notch não contém vírus, anúncios nem telemetria, e todo o código está neste
+> repositório para quem quiser revisar. Se preferir não confiar no instalador,
+> confira o [SHA-256](installers/SHA256SUMS.txt) ou [compile o app](#compilar-e-executar) você mesmo.
+>
+> Para abrir na primeira vez:
+>
+> 1. Tente abrir o Notch e feche o aviso.
+> 2. Vá em **Ajustes do Sistema → Privacidade e Segurança**.
+> 3. Role até a mensagem sobre o Notch e clique em **Abrir Mesmo Assim**.
+> 4. Confirme com sua senha ou Touch ID.
+>
+> Isso só é necessário uma vez por versão.
+
 Se você abrir o Notch direto do `.dmg` ou de Downloads, ele oferece se mover
 para Aplicativos sozinho, substituindo uma versão anterior e ejetando a imagem.
 Conclua antes qualquer timer da versão anterior que queira preservar.
 
-O app fica na barra de menus. Para iniciar com o Mac, abra as configurações e
+O app vive só no notch, sem ícone na barra de menus. Para iniciar com o Mac, abra as configurações pelo painel e
 habilite **Iniciar ao fazer login** depois de instalá-lo em Aplicativos.
 Se o macOS pedir aprovação, use **Abrir Itens de Início**. O [guia completo](docs/SETUP.md#2-faça-o-notch-iniciar-junto-com-o-login)
 mostra como conferir esse registro nos ajustes do sistema.
@@ -123,12 +166,45 @@ histórico e credenciais não são enviados a servidores pelo Notch.
 
 ### Pomodoro
 
-Cada etapa é iniciada manualmente. Ao concluir uma sessão, a próxima pausa fica
-pronta para começar; depois de quatro sessões, a pausa proposta é longa.
+Por padrão são sessões de 25 minutos, pausas de 5 e pausa longa de 15 após quatro
+sessões; tudo isso é ajustável em **Configurações → Timer**. Sem início automático,
+cada etapa fica pronta para começar; com ele, foco e pausas se alternam sozinhos
+até a pausa longa encerrar o ciclo.
 Também há um temporizador com duração personalizada nas configurações.
 
 A contagem considera o horário absoluto: se o Mac dormir, o aviso é apresentado
 quando ele acordar. Fechar o aplicativo encerra a sessão atual do timer.
+
+### Assistentes de código
+
+Em **Configurações → Assistentes**, ative os avisos e instale o hook de cada
+assistente. O hook é o comando local `notch-hook`, empacotado no app: não usa
+tokens nem rede. Ele altera `~/.claude/settings.json`, `~/.codex/hooks.json` ou
+`~/.cursor/hooks.json`, preservando outros hooks e guardando uma cópia
+`.notch-backup`.
+
+Com música ou timer ativos, o aviso aparece numa bolinha à direita da ilha; sem
+outra atividade, ocupa as laterais da própria ilha. Passar o mouse abre o mini chat:
+
+- **Permissão** (Claude Code e Codex): **Permitir**, **Recusar** ou escrever o
+  que fazer em vez disso; o texto chega ao assistente junto com a recusa.
+- **Plano:** ao sair do modo de planejamento, o plano aparece para **Aprovar** ou
+  para pedir mudanças por texto.
+- **Pergunta com opções:** escolha uma ou várias opções, ou escreva outra
+  resposta. Uma pergunta única de escolha única é enviada no clique.
+- **Conclusão** (Claude Code, Codex e Cursor): a última resposta aparece por
+  alguns segundos. No Cursor, só há conclusão, porque o único hook de aprovação
+  dele intercepta todo comando de terminal.
+- **Nada muda enquanto você lê:** com o mini chat aberto, o prazo congela e
+  nenhum outro aviso toma o lugar; uma escolha ou um texto em andamento o mantêm
+  aberto até o envio. Sem resposta no prazo, ou em **Responder no terminal**, o
+  pedido volta para o próprio assistente.
+- **Pausar:** o sino do painel desativa os avisos, por exemplo ao compartilhar a
+  tela. Pausado ou fechado, o Notch não recebe nada e os assistentes seguem como
+  se o hook não existisse.
+
+Reinstale os hooks se mover o Notch.app de lugar. No Codex, os hooks precisam
+estar habilitados na versão instalada.
 
 ## Compilar e executar
 
@@ -164,6 +240,7 @@ Developer ID e notarização exige configuração própria; o script não faz no
 | --- | --- |
 | `Sources/NotchCore` | Geometria, tempo, Pomodoro, ordem de atividades e cores das capas. |
 | `Sources/Notch` | Interface nativa, painel, configurações e integrações. |
+| `Sources/NotchHook` | `notch-hook`, ponte entre os hooks dos assistentes e o app. |
 | `Tests/NotchCoreTests` | Testes das regras do app. |
 | `Resources` | Ícone, identidade e permissões do aplicativo. |
 | `scripts` | Compilação, criação do ícone e empacotamento. |

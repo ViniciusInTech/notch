@@ -57,6 +57,20 @@ verificados durante o desenvolvimento; repita-os para cada versão relevante.
 - [ ] Negar notificações e confirmar que a contagem segue funcionando.
 - [ ] Conferir temporizador personalizado nas configurações.
 
+## Assistentes
+
+- [ ] Instalar e remover o hook de Claude, Codex e Cursor sem perder outros hooks.
+- [ ] Pedido de permissão do Claude Code: Permitir e Recusar pela ilha.
+- [ ] Deixar o prazo expirar e conferir o pedido no terminal.
+- [ ] Responder no terminal e conferir que o aviso some da ilha.
+- [ ] Conclusão de Claude, Codex e Cursor com a última resposta.
+- [ ] Pausar pelo sino: nenhum aviso chega e os assistentes seguem normalmente.
+- [x] Com música tocando, o aviso aparece numa bolinha à direita sem tirar a música.
+- [x] Hover na bolinha abre o mini chat; prazo congela enquanto aberto.
+- [x] Pergunta com opções devolve `answers` (teste com `notch-hook`).
+- [ ] Pergunta e plano numa sessão real do Claude Code.
+- [ ] Recusar com instrução escrita e conferir a mensagem no Claude Code.
+
 ## Aparência, login e recursos
 
 - [ ] Capas de cores distintas atualizam a cor das ondas.

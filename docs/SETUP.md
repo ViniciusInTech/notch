@@ -15,8 +15,8 @@ Se abrir o Notch direto do `.dmg` ou de Downloads, ele pergunta se pode se mover
 para Aplicativos. Ao aceitar, encerra a versão anterior, copia o app, reabre a
 nova cópia e ejeta o disco. Desligue a pergunta em **Configurações → Geral**.
 
-O Notch aparece na barra de menus e junto ao recorte da câmera. Passe o mouse
-para expandir ou abra **Notch → Abrir ilha** pelo menu.
+O Notch aparece junto ao recorte da câmera, sem ícone na barra de menus. Passe o
+mouse para expandir.
 
 Instaladores assinados com Developer ID e notarizados mostram apenas a
 confirmação padrão do macOS. Builds com assinatura ad hoc exigem liberar o app em
@@ -26,8 +26,8 @@ para avaliar a origem e a autorização do aplicativo.
 
 ## 2. Faça o Notch iniciar junto com o login
 
-1. Com o Notch já instalado em Aplicativos, abra seu menu na barra superior.
-2. Entre em **Configurações… → Geral**. O ícone de engrenagem do painel também abre essa janela.
+1. Com o Notch já instalado em Aplicativos, passe o mouse no notch.
+2. Clique no ícone de ajustes do painel e entre em **Geral**.
 3. Ative **Iniciar ao fazer login**.
 4. Se aparecer um pedido de aprovação, clique em **Abrir Itens de Início** e aprove o Notch.
 5. Para conferir no macOS, abra **Ajustes do Sistema → Geral → Itens de Início e Extensões**.
@@ -95,7 +95,7 @@ integração do navegador quando não quiser utilizá-la.
 4. Para o aviso sonoro do próprio app, use **Configurações… → Geral → Som ao terminar temporizador**.
 
 A permissão de notificação é opcional: a contagem funciona mesmo sem banners.
-Cada etapa do Pomodoro é iniciada manualmente. Fechar o app encerra a contagem atual.
+Durações, sessões e início automático ficam em **Configurações… → Timer**. Fechar o app encerra a contagem atual.
 
 ## Quais permissões são necessárias?
 
@@ -113,7 +113,7 @@ As ondas são decorativas e não capturam áudio.
 
 | O que aconteceu | O que conferir |
 | --- | --- |
-| Nada aparece depois de abrir | Procure o ícone na barra de menus e use **Abrir ilha**. |
+| Nada aparece depois de abrir | Passe o mouse no topo central da tela, junto ao notch. |
 | Não iniciou após o login | App em Aplicativos, toggle ligado e aprovação do sistema concluída. |
 | Faixa/capa não aparece | Música tocando, app Spotify aberto, integração ligada e Automação permitida. |
 | Navegador não responde | Navegador correto, aba ativa, mídia HTML5 e JavaScript via Apple Events habilitado. |

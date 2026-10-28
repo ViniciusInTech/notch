@@ -8,5 +8,8 @@
 - Confira a integridade com o [SHA-256](SHA256SUMS.txt).
 
 Este é um build de desenvolvimento com assinatura ad hoc, sem notarização.
+Por isso o macOS avisa que não pôde verificar o app na primeira abertura. O
+motivo é só o custo do Apple Developer Program, não algo encontrado no app. Veja
+[como abrir mesmo assim](../README.md#instalar); o código completo está neste repositório.
 O aplicativo é distribuído sob a [PolyForm Noncommercial 1.0.0](../LICENSE).
 As condições e avisos também estão incluídos no instalador.

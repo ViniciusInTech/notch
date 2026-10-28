@@ -7,16 +7,6 @@ import UserNotifications
     @StateObject private var model = AppDelegate.model
 
     var body: some Scene {
-        MenuBarExtra("Notch", systemImage: "rectangle.topthird.inset.filled") {
-            Button("Abrir ilha") { delegate.panel?.showExpanded() }
-            Button("Temporizador") { model.timerPage = true; delegate.panel?.showExpanded() }
-            Divider()
-            SettingsLink { Text("Configurações…") }
-                .keyboardShortcut(",")
-                .simultaneousGesture(TapGesture().onEnded { NSApp.activate(ignoringOtherApps: true) })
-            Divider()
-            Button("Sair do Notch") { NSApp.terminate(nil) }.keyboardShortcut("q")
-        }
         Settings { SettingsView(model: model, preferences: model.preferences, login: model.login) }
     }
 }

@@ -37,8 +37,10 @@ do tamanho atual com o novo, transparente em volta da ilha; a forma preta
 baixo e para os lados, revelando o conteúdo de largura final centralizado. Ao
 encolher, a forma anima e a janela só acompanha depois de 0,52 s. Fora da forma,
 hitTest e as checagens de hover ignoram a área transparente. Abrir usa
-spring(0,44; 0,74), alargar spring(0,36; 0,72) e recolher spring(0,32; 0,92). O hover espera 80 ms antes de abrir e 250 ms antes
-de recolher, evitando aberturas acidentais.
+spring(0,44; 0,74), alargar spring(0,36; 0,72) e recolher spring(0,32; 0,92). O hover espera 50 ms antes de abrir e 250 ms antes
+de recolher. A checagem usa limites inclusivos com margem de 6 pontos (o cursor
+preso na borda superior informa y == maxY) e mouseMoved reagenda a abertura se a
+janela mudou de tamanho sob o ponteiro sem gerar mouseEntered.
 A composição interna mantém a largura final
 e é revelada pelo recorte, evitando remontar colunas durante a expansão.
 O NSHostingView não impõe tamanho intrínseco à janela (sizingOptions vazio).
@@ -75,8 +77,31 @@ mesma largura é usada para “etapa concluída” e “permissão pendente”, 
 ícone à esquerda e um rótulo curto à direita. A permissão pendente aparece só
 quando a fonte com erro está aberta e nenhuma outra atividade está em andamento.
 O anel de progresso do timer usa a duração total registrada ao iniciar.
-`PomodoroCycle` controla sessões de 25 min, pausas de 5 min e pausa longa de
-15 min após quatro sessões. A próxima fase fica pronta, sem início automático.
+`PomodoroCycle` alterna foco e pausas curtas e propõe a pausa longa após o número
+de sessões de `PomodoroSettings` (padrão 25/5/15 min, 4 sessões); concluir a pausa
+longa encerra o ciclo e zera as sessões. Com início automático, `AppModel` inicia
+a etapa seguinte até o ciclo terminar. Não há item na barra de menus: o painel
+abre Configurações e encerra o app.
+Avisos de assistentes: `notch-hook` (alvo próprio, só Foundation) lê o JSON do
+hook e envia `"<agente> <tamanho>\n" + JSON` ao socket Unix
+`~/Library/Application Support/Notch/agents.sock` (0600, pasta 0700, peer
+conferido com getpeereid). Sem socket, sai sem saída e o assistente segue
+sozinho. `AgentHookServer` usa fila própria e DispatchSource; o socket só existe
+com os avisos ligados e não pausados. Conclusões fecham a conexão na hora;
+permissões a mantêm aberta até resposta, prazo ou fechamento pelo helper (lido
+como abandono). `AgentHook`, no núcleo, traduz PermissionRequest/Stop (Claude
+Code e Codex) e `stop` (Cursor) e gera a decisão. Sozinho, um aviso ocupa os dois
+lados da ilha recolhida; com música, timer ou outro estado, vira uma bolinha à
+direita. `IslandComposition` (núcleo) posiciona ilha, bolinha e mini chat a
+partir do centro do notch: a janela é simétrica, o mini chat fica sob a bolinha
+(ou centralizado) e as regiões definem hitTest e hover. O mini chat mede a
+própria altura e a janela acompanha. Aberto, congela o prazo do aviso visível;
+escolhas ou texto em andamento (`agentDraft`) o mantêm aberto. Perguntas
+(AskUserQuestion) voltam como `updatedInput` com `answers`; recusa pode levar
+mensagem. O hook de permissão espera até 1 h; o Notch decide antes pelo próprio
+prazo. Eventos são registrados em `Logger` (subsistema dev.vinicius.Notch,
+categoria agents). `AgentHookInstaller` edita os arquivos de hooks do usuário só
+por ação explícita.
 O botão Quit usa NSApplication.terminate e o delegate cancela as tarefas do app.
 
 A capa ocupa 50 × 50 pontos no painel aberto. Na ilha recolhida usa 22 pontos,

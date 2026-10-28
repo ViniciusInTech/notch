@@ -2,6 +2,9 @@ import AppKit
 import Combine
 import UserNotifications
 import NotchCore
+import os
+
+private let agentLog = Logger(subsystem: "dev.vinicius.Notch", category: "agents")
 
 @MainActor final class AppModel: ObservableObject {
     let preferences = Preferences()
@@ -21,11 +24,24 @@ import NotchCore
     @Published private(set) var timerDuration: TimeInterval = 1500
     /// A running source whose Automation access failed; shown only while nothing else is active.
     @Published private(set) var attention: MediaSource?
+    /// Assistant notifications, oldest first; the island shows one at a time.
+    @Published private(set) var agentEvents: [AgentEvent] = []
 
+    /// The mini chat under the island; while open, the visible request holds still.
+    @Published private(set) var agentCardOpen = false
+    /// Set by the mini chat while a choice or text is in progress: it stays open until sent.
+    @Published var agentDraft = false
+
+    var agentEvent: AgentEvent? { agentEvents.first }
     var showsAttention: Bool { attention != nil && activityOrder.items.isEmpty && !completionVisible }
-    var active: Bool { media?.isPlaying == true || countdown.isActive || completionVisible || showsAttention }
+    var hasOtherActivity: Bool { media?.isPlaying == true || countdown.isActive || completionVisible || showsAttention }
+    /// With music or a timer on the island, the assistant gets its own bubble beside it.
+    var agentInBubble: Bool { agentEvent != nil && hasOtherActivity }
+    /// Alone, the assistant takes both ears of the island.
+    var agentInIsland: Bool { agentEvent != nil && !hasOtherActivity }
+    var active: Bool { hasOtherActivity || agentEvent != nil }
     /// The collapsed island needs both ears for two activities or a short status label.
-    var compactIsWide: Bool { activityOrder.items.count > 1 || completionVisible || showsAttention }
+    var compactIsWide: Bool { activityOrder.items.count > 1 || completionVisible || showsAttention || agentInIsland }
     private let runner = AutomationRunner()
     private var spotifySnapshot: MediaSnapshot?
     private var browserSnapshot: MediaSnapshot?
@@ -37,6 +53,15 @@ import NotchCore
     private var timerTask: Task<Void, Never>?
     private var completionTask: Task<Void, Never>?
     private var subscriptions = Set<AnyCancellable>()
+    private lazy var agentServer = AgentHookServer(
+        onEvent: { [weak self] event in Task { @MainActor in self?.receive(event) } },
+        onGone: { [weak self] id in Task { @MainActor in self?.resolveAgent(id, decision: nil, reason: "helper closed") } })
+    private var agentServerRunning = false
+    private var agentTimeouts: [UUID: Task<Void, Never>] = [:]
+    private var agentDeadlines: [UUID: Date] = [:]
+    /// Time left on a request whose countdown is frozen by the open mini chat.
+    private var agentRemaining: [UUID: TimeInterval] = [:]
+    private var agentTotals: [UUID: TimeInterval] = [:]
 
     init() {
         let workspace = NSWorkspace.shared.notificationCenter
@@ -62,9 +87,17 @@ import NotchCore
                 self.spotifySnapshot = nil; self.browserSnapshot = nil; self.errors = [:]
                 Task { await self.refresh(force: true) }
             }.store(in: &subscriptions)
+        // @Published emits before storing, so read the other flag and take the new value from the event.
+        preferences.$agentsEnabled.dropFirst()
+            .sink { [weak self] enabled in self?.setAgentServer(running: enabled && self?.preferences.agentsPaused == false) }
+            .store(in: &subscriptions)
+        preferences.$agentsPaused.dropFirst()
+            .sink { [weak self] paused in self?.setAgentServer(running: !paused && self?.preferences.agentsEnabled == true) }
+            .store(in: &subscriptions)
     }
 
     func start() {
+        setAgentServer(running: preferences.agentsEnabled && !preferences.agentsPaused)
         loop?.cancel()
         checkTimer()
         scheduleTimer()
@@ -78,7 +111,101 @@ import NotchCore
         }
     }
 
-    func stop() { loop?.cancel(); timerTask?.cancel(); completionTask?.cancel() }
+    func stop() { loop?.cancel(); timerTask?.cancel(); completionTask?.cancel(); setAgentServer(running: false) }
+
+    // MARK: Assistants
+
+    /// The socket exists only while notifications are on and not paused; closing it hands
+    /// pending permission requests back to each assistant's own prompt.
+    private func setAgentServer(running: Bool) {
+        guard running != agentServerRunning else { return }
+        agentServerRunning = running
+        if running { agentServer.start(); return }
+        agentServer.stop()
+        agentTimeouts.values.forEach { $0.cancel() }
+        agentTimeouts = [:]
+        agentDeadlines = [:]
+        agentRemaining = [:]
+        agentTotals = [:]
+        agentEvents = []
+        agentCardOpen = false
+        agentDraft = false
+    }
+
+    private func receive(_ event: AgentEvent) {
+        agentLog.info("receive \(event.id, privacy: .public) kind=\(String(describing: event.kind), privacy: .public)")
+        guard agentServerRunning else { agentServer.respond(event.id, with: nil); return }
+        // Requests that wait for an answer go ahead of completions, never ahead of the visible one.
+        if event.kind.waitsForAnswer, let index = agentEvents.indices.dropFirst().first(where: { !agentEvents[$0].kind.waitsForAnswer }) {
+            agentEvents.insert(event, at: index)
+        } else {
+            agentEvents.append(event)
+        }
+        let wait = event.kind.waitsForAnswer ? Double(preferences.agentPermissionWait) : 8
+        agentTotals[event.id] = wait
+        if agentCardOpen && agentEvent?.id == event.id { agentRemaining[event.id] = wait }
+        else { scheduleAgentTimeout(event.id, after: wait) }
+    }
+
+    private func scheduleAgentTimeout(_ id: UUID, after seconds: Double) {
+        agentTimeouts[id]?.cancel()
+        agentDeadlines[id] = Date().addingTimeInterval(seconds)
+        agentRemaining[id] = nil
+        agentTimeouts[id] = Task { [weak self] in
+            do { try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) } catch { return }
+            self?.resolveAgent(id, decision: nil, reason: "timeout")
+        }
+    }
+
+    /// Opening the mini chat freezes the visible request's deadline; nothing replaces it while open.
+    func openAgentCard() {
+        guard let event = agentEvent, !agentCardOpen else { return }
+        agentLog.info("open card \(event.id, privacy: .public)")
+        expanded = false
+        agentCardOpen = true
+        if let deadline = agentDeadlines[event.id] {
+            agentTimeouts.removeValue(forKey: event.id)?.cancel()
+            agentDeadlines[event.id] = nil
+            agentRemaining[event.id] = max(0, deadline.timeIntervalSinceNow)
+        }
+    }
+
+    /// Closing resumes the countdown, with a few seconds of grace. A draft keeps it open.
+    func closeAgentCard(force: Bool = false) {
+        guard agentCardOpen, force || !agentDraft else { return }
+        agentLog.info("close card draft=\(self.agentDraft)")
+        agentCardOpen = false
+        agentDraft = false
+        if let event = agentEvent, let remaining = agentRemaining[event.id] {
+            scheduleAgentTimeout(event.id, after: max(remaining, event.kind.waitsForAnswer ? 5 : 3))
+        }
+    }
+
+    /// Answers the visible request, or dismisses the visible completion with nil.
+    func answerAgent(_ decision: AgentDecision?) {
+        guard let event = agentEvent else { return }
+        resolveAgent(event.id, decision: decision, reason: "user")
+    }
+
+    private func resolveAgent(_ id: UUID, decision: AgentDecision?, reason: String) {
+        agentLog.info("resolve \(id, privacy: .public) reason=\(reason, privacy: .public) answered=\(decision != nil)")
+        agentTimeouts.removeValue(forKey: id)?.cancel()
+        agentDeadlines[id] = nil
+        agentRemaining[id] = nil
+        agentTotals[id] = nil
+        guard let index = agentEvents.firstIndex(where: { $0.id == id }) else { return }
+        let event = agentEvents.remove(at: index)
+        if index == 0 { agentCardOpen = false; agentDraft = false }
+        if event.kind.waitsForAnswer { agentServer.respond(id, with: decision.map { AgentHook.response($0, for: event) }) }
+    }
+
+    /// Remaining share of the visible request's wait, for the ring around the bubble.
+    func agentProgress(at date: Date) -> Double {
+        guard let event = agentEvent, let total = agentTotals[event.id], total > 0 else { return 1 }
+        if let remaining = agentRemaining[event.id] { return remaining / total }
+        guard let deadline = agentDeadlines[event.id] else { return 1 }
+        return max(0, deadline.timeIntervalSince(date)) / total
+    }
 
     func retryConnections() {
         errors = [:]
@@ -142,7 +269,7 @@ import NotchCore
         }
     }
 
-    func startTimer(minutes: Double) {
+    func startTimer(minutes: Double, showPage: Bool = true) {
         guard minutes.isFinite, minutes > 0 else { return }
         completionVisible = false
         completionTask?.cancel()
@@ -151,14 +278,14 @@ import NotchCore
         timerIsPomodoro = false
         synchronizeActivities()
         scheduleTimer()
-        timerPage = true
+        if showPage { timerPage = true }
         if Bundle.main.bundleURL.pathExtension == "app" {
             UNUserNotificationCenter.current().requestAuthorization(options: [.alert]) { _, _ in }
         }
     }
 
-    func startPomodoro() {
-        startTimer(minutes: Double(pomodoro.phase.minutes))
+    func startPomodoro(showPage: Bool = true) {
+        startTimer(minutes: Double(preferences.pomodoro.minutes(for: pomodoro.phase)), showPage: showPage)
         timerIsPomodoro = true
     }
 
@@ -202,23 +329,30 @@ import NotchCore
 
     private func checkTimer() {
         guard countdown.completeIfNeeded() else { return }
+        var advanced = false
         if timerIsPomodoro {
-            pomodoro.complete()
-            completionTitle = pomodoro.phase == .work ? "Foco pronto" : "Pausa pronta"
+            let finished = pomodoro.complete(sessions: preferences.pomodoro.sessions)
+            advanced = preferences.pomodoroAutoStart && !finished
+            let focus = pomodoro.phase == .work
+            if finished { completionTitle = "Ciclo concluído" }
+            else if advanced { completionTitle = focus ? "Foco iniciado" : "Pausa iniciada" }
+            else { completionTitle = focus ? "Foco pronto" : "Pausa pronta" }
         } else { completionTitle = "Concluído" }
         timerIsPomodoro = false
+        // Auto-start chains phases until the long break closes the cycle.
+        if advanced { startPomodoro(showPage: false) }
         synchronizeActivities()
         completionVisible = true
         if preferences.soundEnabled { NSSound(named: "Glass")?.play() }
         if Bundle.main.bundleURL.pathExtension == "app" {
             let content = UNMutableNotificationContent()
-            content.title = "Tempo concluído"
-            content.body = "Seu temporizador do Notch terminou."
+            content.title = advanced ? completionTitle : "Tempo concluído"
+            content.body = advanced ? "A etapa anterior do Pomodoro terminou." : "Seu temporizador do Notch terminou."
             UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
         }
         completionTask?.cancel()
         completionTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 12_000_000_000)
+            try? await Task.sleep(nanoseconds: advanced ? 4_000_000_000 : 12_000_000_000)
             guard !Task.isCancelled else { return }
             self?.completionVisible = false
         }

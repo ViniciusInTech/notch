@@ -58,19 +58,38 @@ struct NotchCoreTests {
         #expect(order.items.isEmpty)
     }
 
-    @Test func testPomodoroOffersShortBreaksThenLongBreakAfterFourSessions() {
+    @Test func testPomodoroOffersShortBreaksThenLongBreakAfterConfiguredSessions() {
         var cycle = PomodoroCycle()
+        let settings = PomodoroSettings()
         #expect(cycle.phase == .work)
-        #expect(cycle.phase.minutes == 25)
-        for completed in 1...4 {
-            cycle.complete()
+        #expect(settings.minutes(for: .work) == 25)
+        #expect(settings.minutes(for: .shortBreak) == 5)
+        #expect(settings.minutes(for: .longBreak) == 15)
+        for completed in 1...3 {
+            var finished = cycle.complete(sessions: 3)
+            #expect(!finished)
             #expect(cycle.completedSessions == completed)
-            #expect(cycle.phase == (completed == 4 ? .longBreak : .shortBreak))
-            cycle.complete()
-            #expect(cycle.phase == .work)
+            #expect(cycle.phase == (completed == 3 ? .longBreak : .shortBreak))
+            if completed < 3 {
+                finished = cycle.complete(sessions: 3)
+                #expect(!finished)
+                #expect(cycle.phase == .work)
+            }
         }
-        #expect(PomodoroPhase.shortBreak.minutes == 5)
-        #expect(PomodoroPhase.longBreak.minutes == 15)
+        let finished = cycle.complete(sessions: 3)
+        #expect(finished)
+        #expect(cycle.phase == .work)
+        #expect(cycle.completedSessions == 0)
+    }
+
+    @Test func testPomodoroSettingsClampValues() {
+        let settings = PomodoroSettings(focusMinutes: 0, shortBreakMinutes: -2, longBreakMinutes: 0, sessions: 40)
+        #expect(settings.minutes(for: .work) == 1)
+        #expect(settings.minutes(for: .shortBreak) == 1)
+        #expect(settings.sessions == PomodoroSettings.sessionRange.upperBound)
+        var cycle = PomodoroCycle()
+        cycle.complete(sessions: 1)
+        #expect(cycle.phase == .longBreak)
     }
 
     @Test func testOffersMoveOnlyForDownloadedCopies() {
@@ -181,5 +200,88 @@ struct NotchCoreTests {
         #expect(!completed)
         #expect(timer.isActive)
         #expect(timer.remaining() == 25)
+    }
+
+    @Test func testAgentPermissionRequestBecomesIslandEvent() throws {
+        let payload = Data(#"{"hook_event_name":"PermissionRequest","cwd":"/Users/ana/notch","tool_name":"Bash","tool_input":{"command":"npm test\n  --watch","description":"Run"}}"#.utf8)
+        let event = try #require(AgentHook.event(agent: .claude, payload: payload))
+        #expect(event.kind == .permission)
+        #expect(event.tool == "Bash")
+        #expect(event.detail == "npm test --watch")
+        #expect(event.project == "notch")
+        let codex = AgentHook.event(agent: .codex, payload: payload)
+        #expect(codex?.kind == .permission)
+        #expect(AgentHook.event(agent: .cursor, payload: payload) == nil)
+    }
+
+    @Test func testAgentCompletionsSkipLoopsAndAborts() throws {
+        let stop = Data(#"{"hook_event_name":"Stop","cwd":"/tmp/app","last_assistant_message":"Pronto.\n\nTestes passam."}"#.utf8)
+        #expect(AgentHook.event(agent: .claude, payload: stop)?.detail == "Pronto. Testes passam.")
+        let loop = Data(#"{"hook_event_name":"Stop","stop_hook_active":true}"#.utf8)
+        #expect(AgentHook.event(agent: .codex, payload: loop) == nil)
+        let cursor = Data(#"{"hook_event_name":"stop","status":"completed","workspace_roots":["/Users/ana/site"]}"#.utf8)
+        let event = try #require(AgentHook.event(agent: .cursor, payload: cursor))
+        #expect(event.kind == .completion)
+        #expect(event.project == "site")
+        let aborted = Data(#"{"hook_event_name":"stop","status":"aborted"}"#.utf8)
+        #expect(AgentHook.event(agent: .cursor, payload: aborted) == nil)
+        #expect(AgentHook.event(agent: .claude, payload: Data("not json".utf8)) == nil)
+    }
+
+    @Test func testAgentDecisionMatchesHookOutput() throws {
+        let allow = try #require(JSONSerialization.jsonObject(with: AgentHook.response(.allow)) as? [String: Any])
+        let output = try #require(allow["hookSpecificOutput"] as? [String: Any])
+        #expect(output["hookEventName"] as? String == "PermissionRequest")
+        #expect((output["decision"] as? [String: Any])?["behavior"] as? String == "allow")
+        let deny = String(decoding: AgentHook.response(.deny(nil)), as: UTF8.self)
+        #expect(deny.contains(#""behavior":"deny""#))
+        let instructed = String(decoding: AgentHook.response(.deny("Use pnpm")), as: UTF8.self)
+        #expect(instructed.contains(#""message":"Use pnpm""#))
+        let long = AgentHook.clean(String(repeating: "a", count: 1000))
+        #expect(long.count == AgentHook.detailLimit)
+    }
+
+    @Test func testAgentQuestionIsAnsweredThroughUpdatedInput() throws {
+        let payload = Data(#"{"hook_event_name":"PermissionRequest","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Qual banco?","header":"Banco","multiSelect":false,"options":[{"label":"Postgres","description":"Relacional"},{"label":"SQLite"}]}]}}"#.utf8)
+        let event = try #require(AgentHook.event(agent: .claude, payload: payload))
+        #expect(event.kind == .question)
+        #expect(event.questions.first?.options.map(\.label) == ["Postgres", "SQLite"])
+        #expect(event.questions.first?.header == "Banco")
+        let output = try #require(JSONSerialization.jsonObject(with: AgentHook.response(.answer(["Qual banco?": "SQLite"]), for: event)) as? [String: Any])
+        let decision = try #require((output["hookSpecificOutput"] as? [String: Any])?["decision"] as? [String: Any])
+        #expect(decision["behavior"] as? String == "allow")
+        let input = try #require(decision["updatedInput"] as? [String: Any])
+        #expect((input["answers"] as? [String: String])?["Qual banco?"] == "SQLite")
+        #expect((input["questions"] as? [Any])?.count == 1)
+    }
+
+    @Test func testPlanApprovalKeepsMoreText() throws {
+        let plan = String(repeating: "passo ", count: 150)
+        let payload = try JSONSerialization.data(withJSONObject: ["hook_event_name": "PermissionRequest", "tool_name": "ExitPlanMode", "tool_input": ["plan": plan]])
+        let event = try #require(AgentHook.event(agent: .claude, payload: payload))
+        #expect(event.kind == .permission)
+        #expect(event.detail.count > AgentHook.detailLimit)
+    }
+
+    @Test func testCompositionPlacesBubbleAndCardBesideCenteredIsland() {
+        let island = IslandSize(width: 300, height: 32)
+        let plain = IslandComposition(island: island, notchHeight: 32)
+        #expect(plain.halfWidth == 150)
+        #expect(plain.height == 32)
+        let bubble = IslandComposition(island: island, notchHeight: 32, bubbleSize: 30)
+        #expect(bubble.bubbleMinX == 158)
+        #expect(bubble.halfWidth == 196)
+        #expect(bubble.bubbleMinY == 1)
+        #expect(bubble.region(x: 170, y: 10) == .bubble)
+        #expect(bubble.region(x: 0, y: 0) == .island)
+        #expect(bubble.region(x: 0, y: 40) == nil)
+        let card = IslandComposition(island: island, notchHeight: 32, bubbleSize: 30, card: IslandSize(width: 420, height: 200))
+        #expect(card.cardMinX == 188 - 420)
+        #expect(card.halfWidth == 232)
+        #expect(card.height == 240)
+        #expect(card.region(x: 0, y: 100) == .card)
+        let centered = IslandComposition(island: island, notchHeight: 32, card: IslandSize(width: 420, height: 100))
+        #expect(centered.cardMinX == -210)
+        #expect(centered.halfWidth == 210)
     }
 }

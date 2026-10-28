@@ -10,6 +10,7 @@ private final class IslandPanel: NSPanel {
 
 private final class IslandHostingView: NSHostingView<IslandView> {
     var pointerChanged: ((Bool) -> Void)?
+    var pointerMoved: (() -> Void)?
     /// Screen-space test for the visible island; the window can be briefly larger while the shape animates.
     var islandContains: ((NSPoint) -> Bool)?
     private var tracking: NSTrackingArea?
@@ -17,11 +18,13 @@ private final class IslandHostingView: NSHostingView<IslandView> {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
-        tracking = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        tracking = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self)
         if let tracking { addTrackingArea(tracking) }
     }
     override func mouseEntered(with event: NSEvent) { pointerChanged?(true) }
     override func mouseExited(with event: NSEvent) { pointerChanged?(false) }
+    // Catches a pointer already inside when the window resized under it and no enter event arrived.
+    override func mouseMoved(with event: NSEvent) { pointerMoved?() }
     override func hitTest(_ point: NSPoint) -> NSView? {
         if let window, let islandContains {
             let local = superview?.convert(point, to: nil) ?? point
@@ -37,11 +40,16 @@ private final class IslandHostingView: NSHostingView<IslandView> {
     private let hosting: IslandHostingView
     private var subscriptions = Set<AnyCancellable>()
     private var collapseTask: Task<Void, Never>?
-    private var expandTask: Task<Void, Never>?
+    private var intentTask: Task<Void, Never>?
+    private var intentTarget: IslandComposition.Region?
     private var revealTask: Task<Void, Never>?
     private var settleTask: Task<Void, Never>?
     private var lastExpanded = false
     private var targetFrame = NSRect.zero
+    private var targetShape = CGSize.zero
+    private var composition = IslandComposition(island: IslandSize(width: 0, height: 0), notchHeight: 32)
+    private var centerX: CGFloat = 0
+    private var screenTop: CGFloat = 0
     private let geometry = IslandGeometry()
 
     init(model: AppModel) {
@@ -63,9 +71,10 @@ private final class IslandHostingView: NSHostingView<IslandView> {
         panel.isReleasedWhenClosed = false
         panel.isMovable = false
         panel.animationBehavior = .none
-        hosting.pointerChanged = { [weak self] inside in self?.pointerChanged(inside) }
-        hosting.islandContains = { [weak self] point in self?.targetFrame.contains(point) ?? true }
-        model.objectWillChange.merge(with: model.preferences.objectWillChange)
+        hosting.pointerChanged = { [weak self] _ in self?.evaluatePointer() }
+        hosting.pointerMoved = { [weak self] in self?.evaluatePointer() }
+        hosting.islandContains = { [weak self] point in self.map { $0.region(at: point, margin: 0) != nil } ?? true }
+        model.objectWillChange.merge(with: model.preferences.objectWillChange, geometry.$agentCardHeight.map { _ in () }.eraseToAnyPublisher())
             .receive(on: RunLoop.main).sink { [weak self] _ in self?.update() }.store(in: &subscriptions)
         NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)
             .receive(on: RunLoop.main).sink { [weak self] _ in self?.update() }.store(in: &subscriptions)
@@ -75,23 +84,58 @@ private final class IslandHostingView: NSHostingView<IslandView> {
 
     func showExpanded() { model.expanded = true; update(); panel.orderFrontRegardless() }
 
-    private func pointerChanged(_ inside: Bool) {
+    /// Inclusive bounds plus a margin: a pointer pinned to the top edge sits on the frame's
+    /// maxY, so fast moves that slam into the notch must still count as inside.
+    private func region(at point: NSPoint, margin: CGFloat = 6) -> IslandComposition.Region? {
+        composition.region(x: point.x - centerX, y: screenTop - point.y, margin: margin)
+    }
+
+    /// One place decides what the pointer means: the island expands, the bubble (or an island
+    /// that only holds an assistant request) opens the mini chat, and leaving everything closes both.
+    private func evaluatePointer() {
+        switch region(at: NSEvent.mouseLocation) {
+        case .bubble, .card:
+            cancelCollapse()
+            if !model.agentCardOpen { scheduleIntent(.card) }
+        case .island:
+            cancelCollapse()
+            if model.agentCardOpen || model.expanded { return }
+            if model.agentInIsland { scheduleIntent(.card) }
+            else if model.preferences.expandOnHover { scheduleIntent(.island) }
+        case nil:
+            intentTask?.cancel()
+            intentTask = nil
+            if collapseTask == nil && (model.expanded || model.agentCardOpen) { scheduleCollapse() }
+        }
+    }
+
+    private func cancelCollapse() {
         collapseTask?.cancel()
-        expandTask?.cancel()
-        if inside {
-            guard model.preferences.expandOnHover, !model.expanded else { return }
-            // A short intent delay keeps the island closed when the pointer only grazes it.
-            expandTask = Task { [weak self] in
-                do { try await Task.sleep(nanoseconds: 80_000_000) } catch { return }
-                guard let self, self.targetFrame.contains(NSEvent.mouseLocation) else { return }
-                self.model.expanded = true
-            }
-        } else {
-            collapseTask = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 250_000_000)
-                guard !Task.isCancelled, let self else { return }
-                if !self.targetFrame.contains(NSEvent.mouseLocation) { self.model.expanded = false }
-            }
+        collapseTask = nil
+    }
+
+    private func scheduleIntent(_ target: IslandComposition.Region) {
+        guard intentTask == nil || intentTarget != target else { return }
+        intentTask?.cancel()
+        intentTarget = target
+        // A short intent delay keeps things closed when the pointer only grazes them.
+        intentTask = Task { [weak self] in
+            do { try await Task.sleep(nanoseconds: 50_000_000) } catch { return }
+            guard let self else { return }
+            self.intentTask = nil
+            guard self.region(at: NSEvent.mouseLocation) != nil else { return }
+            if target == .island { self.model.expanded = true } else { self.model.openAgentCard() }
+        }
+    }
+
+    private func scheduleCollapse() {
+        collapseTask = Task { [weak self] in
+            do { try await Task.sleep(nanoseconds: 250_000_000) } catch { return }
+            guard let self else { return }
+            self.collapseTask = nil
+            guard self.region(at: NSEvent.mouseLocation) == nil else { return }
+            self.model.expanded = false
+            self.model.closeAgentCard()
         }
     }
 
@@ -113,8 +157,18 @@ private final class IslandHostingView: NSHostingView<IslandView> {
         if geometry.expandedWidth != expandedSize.width { geometry.expandedWidth = expandedSize.width }
         if geometry.expandedHeight != expandedSize.height { geometry.expandedHeight = expandedSize.height }
         let size = layout.outerSize(active: model.active, expanded: model.expanded, activityCount: model.compactIsWide ? 2 : 1)
-        let frame = NSRect(x: centerX - size.width / 2, y: screen.frame.maxY - size.height, width: size.width, height: size.height)
-        guard frame != targetFrame else { return }
+        let bubble = model.agentInBubble ? min(34, height - 2) : 0
+        let card = model.agentCardOpen ? IslandSize(width: IslandGeometry.cardWidth, height: geometry.agentCardHeight) : nil
+        let composition = IslandComposition(island: size, notchHeight: height, bubbleSize: bubble, card: card)
+        self.composition = composition
+        self.centerX = centerX
+        screenTop = screen.frame.maxY
+        if geometry.composition != composition { geometry.composition = composition }
+        let frame = NSRect(x: centerX - composition.halfWidth, y: screen.frame.maxY - composition.height,
+                           width: 2 * composition.halfWidth, height: composition.height)
+        let shape = CGSize(width: size.width, height: size.height)
+        guard frame != targetFrame || shape != targetShape else { return }
+        targetShape = shape
         let initialPlacement = targetFrame == .zero
         let screenChanged = targetFrame.maxY != frame.maxY || targetFrame.midX != frame.midX
         let expansionChanged = lastExpanded != model.expanded
@@ -123,7 +177,6 @@ private final class IslandHostingView: NSHostingView<IslandView> {
         revealTask?.cancel()
         settleTask?.cancel()
         if !model.expanded { geometry.expandedContentVisible = false }
-        let shape = CGSize(width: size.width, height: size.height)
 
         if initialPlacement || screenChanged || model.preferences.reduceMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             geometry.shapeAnimation = nil
@@ -174,4 +227,9 @@ private final class IslandHostingView: NSHostingView<IslandView> {
     /// Outer size of the visible island, shoulders included; animated by the view.
     @Published var shapeSize = CGSize(width: 204, height: 32)
     var shapeAnimation: Animation?
+    static let cardWidth = 420.0
+    /// Bubble and mini chat placement around the island.
+    @Published var composition = IslandComposition(island: IslandSize(width: 204, height: 32), notchHeight: 32)
+    /// Measured by the mini chat; the window grows to fit it.
+    @Published var agentCardHeight = 170.0
 }

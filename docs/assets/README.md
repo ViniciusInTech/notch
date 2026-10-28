@@ -2,6 +2,9 @@
 
 - `notch-compact.png`, `notch-music.png` e `notch-pomodoro.png` são capturas reais
   apenas da janela do Notch, feitas em 27/10/2026.
+- `notch-agent-bubble.png`, `notch-agent-permission.png` e
+  `notch-agent-question.png` são capturas reais da janela do Notch, feitas em
+  28/10/2026, com pedidos de exemplo enviados pelo próprio `notch-hook`.
 - As capturas não alteram nem simulam valores do app. O estado de reprodução,
   as faixas e a contagem podem variar durante o uso.
 - Capas de álbuns e marcas de serviços presentes nas capturas pertencem aos

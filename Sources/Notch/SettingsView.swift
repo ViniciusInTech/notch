@@ -8,6 +8,7 @@ struct SettingsView: View {
     @ObservedObject var login: LoginService
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var input = TimerInput()
+    @StateObject private var hooks = HookStatus()
 
     var body: some View {
         TabView {
@@ -54,6 +55,17 @@ struct SettingsView: View {
             }.formStyle(.grouped).tabItem { Label("Conexões", systemImage: "link") }
 
             Form {
+                Section("Pomodoro") {
+                    minutesStepper("Foco", value: $preferences.pomodoroFocusMinutes, range: 1...180)
+                    minutesStepper("Pausa curta", value: $preferences.pomodoroShortBreakMinutes, range: 1...60)
+                    minutesStepper("Pausa longa", value: $preferences.pomodoroLongBreakMinutes, range: 1...120)
+                    Stepper(value: $preferences.pomodoroSessions, in: PomodoroSettings.sessionRange) {
+                        LabeledContent("Sessões de foco por ciclo", value: "\(preferences.pomodoroSessions)")
+                    }
+                    Toggle("Iniciar próxima etapa automaticamente", isOn: $preferences.pomodoroAutoStart)
+                    Text("Com o início automático, foco e pausas se alternam até a pausa longa encerrar o ciclo.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 Section("Temporizador") {
                     HStack {
                         Text("Duração em minutos")
@@ -78,6 +90,30 @@ struct SettingsView: View {
                 }
             }.formStyle(.grouped).tabItem { Label("Timer", systemImage: "timer") }
 
+            Form {
+                Section("Avisos de assistentes") {
+                    Toggle("Mostrar avisos na ilha", isOn: $preferences.agentsEnabled)
+                    Toggle("Pausar avisos (compartilhando a tela)", isOn: $preferences.agentsPaused)
+                        .disabled(!preferences.agentsEnabled)
+                    Stepper(value: $preferences.agentPermissionWait, in: 10...120, step: 5) {
+                        LabeledContent("Aguardar resposta na ilha", value: "\(preferences.agentPermissionWait) s")
+                    }
+                    .disabled(!preferences.agentsEnabled)
+                    Text("Os hooks rodam um comando local, sem gastar tokens. Sem resposta na ilha, ou com os avisos pausados, o pedido volta para o próprio assistente.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Section("Hooks") {
+                    ForEach(AgentKind.allCases, id: \.rawValue) { agent in hookRow(agent) }
+                    if !AgentHookInstaller.helperExists {
+                        Text("notch-hook não foi encontrado ao lado do app. Gere o app com scripts/build.sh.")
+                            .font(.caption).foregroundStyle(.orange)
+                    }
+                    if let message = hooks.message { Text(message).font(.caption).foregroundStyle(.orange).textSelection(.enabled) }
+                    Text("Instalar altera o arquivo de hooks do usuário e guarda uma cópia em .notch-backup. Reinstale se mover o Notch.app de lugar.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }.formStyle(.grouped).tabItem { Label("Assistentes", systemImage: "sparkles") }
+
             VStack(spacing: 14) {
                 Image(systemName: "rectangle.topthird.inset.filled").font(.system(size: 44, weight: .light))
                 Text("Notch").font(.title)
@@ -87,8 +123,29 @@ struct SettingsView: View {
             }.frame(maxWidth: .infinity, maxHeight: .infinity).tabItem { Label("Sobre", systemImage: "info.circle") }
         }
         .frame(width: 510, height: 490)
-        .onAppear { login.refresh(); NSApp.activate(ignoringOtherApps: true) }
-        .onChange(of: scenePhase) { _, phase in if phase == .active { login.refresh() } }
+        .onAppear { login.refresh(); hooks.refresh(); NSApp.activate(ignoringOtherApps: true) }
+        .onChange(of: scenePhase) { _, phase in if phase == .active { login.refresh(); hooks.refresh() } }
+    }
+
+    private func hookRow(_ agent: AgentKind) -> some View {
+        let installed = hooks.installed.contains(agent)
+        return HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(agent.name)
+                Text(agent.supportsPermissions ? "Permissões e conclusão · \(AgentHookInstaller.configURL(agent).path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))"
+                                               : "Só conclusão · \(AgentHookInstaller.configURL(agent).path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button(installed ? "Remover" : "Instalar") { hooks.toggle(agent) }
+                .disabled(!installed && !AgentHookInstaller.helperExists)
+        }
+    }
+
+    private func minutesStepper(_ title: String, value: Binding<Int>, range: ClosedRange<Int>) -> some View {
+        Stepper(value: value, in: range) {
+            LabeledContent(title, value: "\(value.wrappedValue) min")
+        }
     }
 
     @ViewBuilder private func connectionStatus(_ source: MediaSource) -> some View {
@@ -103,4 +160,21 @@ struct SettingsView: View {
 
 @MainActor private final class TimerInput: ObservableObject {
     @Published var minutes = 25.0
+}
+
+@MainActor private final class HookStatus: ObservableObject {
+    @Published private(set) var installed: Set<AgentKind> = []
+    @Published private(set) var message: String?
+
+    func refresh() { installed = Set(AgentKind.allCases.filter(AgentHookInstaller.isInstalled)) }
+
+    func toggle(_ agent: AgentKind) {
+        do {
+            if installed.contains(agent) { try AgentHookInstaller.uninstall(agent) } else { try AgentHookInstaller.install(agent) }
+            message = nil
+        } catch {
+            message = "\(agent.name): \(error.localizedDescription)"
+        }
+        refresh()
+    }
 }
