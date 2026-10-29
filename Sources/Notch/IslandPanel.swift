@@ -44,6 +44,7 @@ private final class IslandHostingView: NSHostingView<IslandView> {
     private var intentTarget: IslandComposition.Region?
     private var revealTask: Task<Void, Never>?
     private var settleTask: Task<Void, Never>?
+    private var pointerMonitors: [Any] = []
     private var lastExpanded = false
     private var targetFrame = NSRect.zero
     private var targetShape = CGSize.zero
@@ -80,6 +81,27 @@ private final class IslandHostingView: NSHostingView<IslandView> {
             .receive(on: RunLoop.main).sink { [weak self] _ in self?.update() }.store(in: &subscriptions)
         update()
         panel.orderFrontRegardless()
+    }
+
+    /// Tracking areas are rebuilt whenever the window resizes (track change, assistant card), and
+    /// AppKit then may never deliver the exit. While open, mouse moves anywhere re-evaluate the
+    /// pointer; the monitors exist only while open, so the collapsed island stays idle.
+    private func syncPointerMonitors() {
+        let open = model.expanded || model.agentCardOpen
+        guard open == pointerMonitors.isEmpty else { return }
+        if !open {
+            pointerMonitors.forEach(NSEvent.removeMonitor)
+            pointerMonitors = []
+            return
+        }
+        let mask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .rightMouseDragged]
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: { [weak self] _ in
+            MainActor.assumeIsolated { self?.evaluatePointer() }
+        }) { pointerMonitors.append(global) }
+        if let local = NSEvent.addLocalMonitorForEvents(matching: mask, handler: { [weak self] event in
+            MainActor.assumeIsolated { self?.evaluatePointer() }
+            return event
+        }) { pointerMonitors.append(local) }
     }
 
     func showExpanded() { model.expanded = true; update(); panel.orderFrontRegardless() }
@@ -134,12 +156,14 @@ private final class IslandHostingView: NSHostingView<IslandView> {
             guard let self else { return }
             self.collapseTask = nil
             guard self.region(at: NSEvent.mouseLocation) == nil else { return }
-            self.model.expanded = false
+            // A custom Keep Awake duration being typed keeps the island open, like a mini chat draft.
+            if !self.model.keepAwakeEditing { self.model.expanded = false }
             self.model.closeAgentCard()
         }
     }
 
     private func update() {
+        syncPointerMonitors()
         guard let screen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) ?? NSScreen.main ?? NSScreen.screens.first else { return }
         let left = screen.auxiliaryTopLeftArea
         let right = screen.auxiliaryTopRightArea

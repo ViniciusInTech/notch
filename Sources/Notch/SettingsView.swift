@@ -91,6 +91,42 @@ struct SettingsView: View {
             }.formStyle(.grouped).tabItem { Label("Timer", systemImage: "timer") }
 
             Form {
+                Section("Atalhos rápidos") {
+                    ForEach(Array(preferences.keepAwakePresets.enumerated()), id: \.offset) { index, minutes in
+                        HStack {
+                            Stepper(value: Binding(get: { minutes }, set: { updatePreset(at: index, to: $0, from: minutes) }),
+                                    in: KeepAwakePresets.range) {
+                                LabeledContent(KeepAwakeFormat.label(minutes: minutes), value: minutes == preferences.keepAwakeDefault ? "Padrão" : "")
+                            }
+                            Button { removePreset(at: index) } label: { Image(systemName: "minus.circle") }
+                                .buttonStyle(.borderless)
+                                .disabled(preferences.keepAwakePresets.count <= 1)
+                                .accessibilityLabel("Remover \(KeepAwakeFormat.label(minutes: minutes))")
+                        }
+                    }
+                    Button("Adicionar atalho") {
+                        preferences.keepAwakePresets = KeepAwakePresets.normalized(preferences.keepAwakePresets + [KeepAwakePresets.next(after: preferences.keepAwakePresets)])
+                    }
+                    .disabled(preferences.keepAwakePresets.count >= KeepAwakePresets.maximumCount)
+                    Text("Até \(KeepAwakePresets.maximumCount) durações aparecem na aba, além de “Sempre” e “Outro”, que aceita minutos, horas ou dias.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Section("Comportamento") {
+                    Picker("Botão Ligar usa", selection: $preferences.keepAwakeDefault) {
+                        ForEach(Array(Set(preferences.keepAwakePresets + [preferences.keepAwakeDefault])).filter { $0 > 0 }.sorted(), id: \.self) { minutes in
+                            Text(KeepAwakeFormat.label(minutes: minutes)).tag(minutes)
+                        }
+                        Text("Sem limite").tag(0)
+                    }
+                    Toggle("Permitir que a tela apague", isOn: $preferences.keepAwakeAllowDisplaySleep)
+                    Toggle("Desligar com bateria abaixo de 20%", isOn: $preferences.keepAwakeBatteryCutoff)
+                    Toggle("Mostrar na ilha recolhida", isOn: $preferences.keepAwakeShowCollapsed)
+                    Text("Usa a mesma asserção de energia do caffeinate, sem processo extra. Fechar a tampa ainda coloca o Mac para dormir. Ao terminar o prazo ou sair do Notch, o Mac volta a dormir normalmente.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }.formStyle(.grouped).tabItem { Label("Acordado", systemImage: "cup.and.saucer") }
+
+            Form {
                 Section("Avisos de assistentes") {
                     Toggle("Mostrar avisos na ilha", isOn: $preferences.agentsEnabled)
                     Toggle("Pausar avisos (compartilhando a tela)", isOn: $preferences.agentsPaused)
@@ -140,6 +176,28 @@ struct SettingsView: View {
             Button(installed ? "Remover" : "Instalar") { hooks.toggle(agent) }
                 .disabled(!installed && !AgentHookInstaller.helperExists)
         }
+    }
+
+    /// Steps follow the preset's scale; a value already in the list is skipped over.
+    private func updatePreset(at index: Int, to value: Int, from old: Int) {
+        var presets = preferences.keepAwakePresets
+        guard presets.indices.contains(index) else { return }
+        var next = KeepAwakePresets.step(old, up: value > old)
+        while presets.contains(next) && next != old {
+            let further = KeepAwakePresets.step(next, up: value > old)
+            if further == next { return }
+            next = further
+        }
+        if preferences.keepAwakeDefault == old { preferences.keepAwakeDefault = next }
+        presets[index] = next
+        preferences.keepAwakePresets = KeepAwakePresets.normalized(presets)
+    }
+
+    private func removePreset(at index: Int) {
+        var presets = preferences.keepAwakePresets
+        guard presets.count > 1, presets.indices.contains(index) else { return }
+        presets.remove(at: index)
+        preferences.keepAwakePresets = presets
     }
 
     private func minutesStepper(_ title: String, value: Binding<Int>, range: ClosedRange<Int>) -> some View {

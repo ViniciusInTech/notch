@@ -5,10 +5,11 @@ import NotchCore
 private let timerTint = Color(red: 1, green: 0.62, blue: 0.04)
 private let attentionTint = Color(red: 1, green: 0.84, blue: 0.04)
 private let doneTint = Color(red: 0.3, green: 0.85, blue: 0.45)
+private let awakeTint = Color(red: 0.37, green: 0.83, blue: 0.77)
 
 /// What each side of the collapsed island shows; changing it swaps the view with a scale and blur transition.
 private enum CompactSlot: Hashable {
-    case artwork, waves, ring, time, music, timer, check, completionText, warning, authorize, agent, agentLabel
+    case artwork, waves, ring, time, music, timer, check, completionText, warning, authorize, agent, agentLabel, awake, awakeTime
 }
 
 struct IslandView: View {
@@ -108,11 +109,12 @@ struct IslandView: View {
             .reveal(geometry.expandedContentVisible, order: 0, reduce: reduce)
         } else {
             HStack(spacing: 0) {
-                ear(leftSlot)
+                ear(leftSlot, cup: cupBadge == .left)
                 Color.clear.frame(width: geometry.notchWidth)
-                ear(rightSlot)
+                ear(rightSlot, cup: cupBadge == .right)
             }
             .animation(reduce ? nil : .spring(response: 0.38, dampingFraction: 0.72), value: [leftSlot, rightSlot])
+            .animation(reduce ? nil : .spring(response: 0.38, dampingFraction: 0.72), value: cupBadge)
             .accessibilityElement(children: .combine)
         }
     }
@@ -123,6 +125,7 @@ struct IslandView: View {
         if model.showsAttention { return .warning }
         if model.completionVisible { return .check }
         let items = model.activityOrder.items
+        if items.isEmpty && model.keepAwakeVisible { return .awake }
         if items.count == 2 { return items[0] == .music ? .music : .timer }
         return model.countdown.isActive ? .ring : .artwork
     }
@@ -133,19 +136,41 @@ struct IslandView: View {
         if model.showsAttention { return .authorize }
         if model.completionVisible { return .completionText }
         let items = model.activityOrder.items
+        if items.isEmpty && model.keepAwakeVisible { return .awakeTime }
         if items.count == 2 { return items[1] == .music ? .music : .timer }
         return model.countdown.isActive ? .time : .waves
     }
 
-    private func ear(_ slot: CompactSlot?) -> some View {
-        ZStack {
-            if let slot {
-                slotView(slot)
-                    .id(slot)
-                    .transition(reduce ? .opacity : .modifier(active: EarEntrance(shown: false), identity: EarEntrance(shown: true)))
+    private enum EarSide { case left, right }
+
+    /// Keep Awake beside music or a timer: a small cup on the outer edge of the right ear,
+    /// next to the waves or the time.
+    private var cupBadge: EarSide? {
+        guard model.keepAwakeVisible, !model.completionVisible, !model.showsAttention, !model.agentInIsland,
+              !model.activityOrder.items.isEmpty else { return nil }
+        return .right
+    }
+
+    private func ear(_ slot: CompactSlot?, cup: Bool) -> some View {
+        HStack(spacing: 6) {
+            if cup && slot != nil && cupBadge == .left { cupGlyph }
+            ZStack {
+                if let slot {
+                    slotView(slot)
+                        .id(slot)
+                        .transition(reduce ? .opacity : .modifier(active: EarEntrance(shown: false), identity: EarEntrance(shown: true)))
+                }
             }
+            if cup && slot != nil && cupBadge == .right { cupGlyph }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private var cupGlyph: some View {
+        Image(systemName: "cup.and.saucer.fill")
+            .font(.system(size: 9.5, weight: .semibold)).foregroundStyle(awakeTint)
+            .transition(reduce ? .opacity : .scale(scale: 0.5).combined(with: .opacity))
+            .accessibilityLabel("Mantendo o Mac acordado")
     }
 
     @ViewBuilder private func slotView(_ slot: CompactSlot) -> some View {
@@ -183,6 +208,20 @@ struct IslandView: View {
                     .foregroundStyle(event.kind.tint)
                     .lineLimit(1).minimumScaleFactor(0.8)
             }
+        case .awake:
+            Image(systemName: "cup.and.saucer.fill")
+                .font(.system(size: 13, weight: .semibold)).foregroundStyle(awakeTint)
+                .accessibilityLabel("Mantendo o Mac acordado")
+        case .awakeTime:
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                if let remaining = model.keepAwake?.remaining(at: context.date) {
+                    CountingText(text: KeepAwakeFormat.compact(remaining), reduce: reduce)
+                        .font(.system(size: 12, weight: .semibold)).foregroundStyle(awakeTint)
+                } else {
+                    Image(systemName: "infinity").font(.system(size: 12, weight: .bold)).foregroundStyle(awakeTint)
+                }
+            }
+            .accessibilityLabel("Tempo acordado restante")
         }
     }
 
@@ -208,19 +247,19 @@ struct IslandView: View {
 
     // MARK: Expanded header
 
-    private var tabs: [IslandActivity] {
-        let started = model.activityOrder.items
-        return started + [IslandActivity.music, .timer].filter { !started.contains($0) }
+    private var tabs: [IslandPage] {
+        let started = model.activityOrder.items.map { $0 == .music ? IslandPage.music : .timer }
+        return started + [IslandPage.music, .timer].filter { !started.contains($0) } + [.keepAwake]
     }
 
     private var tabSwitcher: some View {
         HStack(spacing: 0) {
-            ForEach(tabs, id: \.rawValue) { activity in
-                let selected = model.timerPage == (activity == .timer)
+            ForEach(tabs, id: \.self) { activity in
+                let selected = model.page == activity
                 Button {
-                    withAnimation(reduce ? nil : .spring(response: 0.34, dampingFraction: 0.8)) { model.timerPage = activity == .timer }
+                    withAnimation(reduce ? nil : .spring(response: 0.34, dampingFraction: 0.8)) { model.page = activity }
                 } label: {
-                    Image(systemName: activity == .music ? "music.note" : "timer")
+                    Image(systemName: activity.symbol)
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(selected ? Color.white : Color.white.opacity(0.55))
                         .frame(width: 30, height: 22)
@@ -230,12 +269,13 @@ struct IslandView: View {
                         .overlay(alignment: .topTrailing) {
                             if activity == .music && model.media?.isPlaying == true { activityDot(.green) }
                             else if activity == .timer && model.countdown.isActive { activityDot(timerTint) }
+                            else if activity == .keepAwake && model.keepAwake != nil { activityDot(awakeTint) }
                         }
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
-                .help(activity == .music ? "Música" : "Pomodoro")
-                .accessibilityLabel(activity == .music ? "Música" : "Pomodoro")
+                .help(activity.title)
+                .accessibilityLabel(activity.title)
                 .accessibilityAddTraits(selected ? .isSelected : [])
             }
         }
@@ -281,8 +321,10 @@ struct IslandView: View {
     @ViewBuilder private var expandedContent: some View {
         let visible = geometry.expandedContentVisible
         ZStack(alignment: .top) {
-            if model.timerPage {
+            if model.page == .timer {
                 PomodoroPanel(model: model, preferences: preferences, visible: visible, reduce: reduce).transition(panelTransition)
+            } else if model.page == .keepAwake {
+                KeepAwakePanel(model: model, preferences: preferences, visible: visible, reduce: reduce).transition(panelTransition)
             } else if let media = model.media {
                 MusicPanel(media: media, model: model, artwork: artwork, visible: visible, reduce: reduce).transition(panelTransition)
             } else {
@@ -565,6 +607,225 @@ private struct PomodoroPanel: View {
         }
         .accessibilityElement()
         .accessibilityLabel("\(filled) de \(total) sessões concluídas")
+    }
+}
+
+// MARK: - Keep awake
+
+/// Same rhythm as the other tabs: ring, time and control in one row; quick durations below.
+/// "Outro" swaps the row for a quantity and unit, keeping the island's height.
+private struct KeepAwakePanel: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var preferences: Preferences
+    let visible: Bool
+    let reduce: Bool
+    @StateObject private var draft = KeepAwakeDraft()
+    @FocusState private var typing: Bool
+
+    var body: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 12) {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    ZStack {
+                        ProgressRing(progress: model.keepAwake?.progress(at: context.date) ?? 0, lineWidth: 4, reduce: reduce, tint: awakeTint)
+                        Image(systemName: "cup.and.saucer.fill").font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(model.keepAwake == nil ? Color.white.opacity(0.45) : awakeTint)
+                    }
+                }
+                .frame(width: 50, height: 50)
+                .accessibilityHidden(true)
+                .reveal(visible, order: 1, reduce: reduce)
+
+                VStack(alignment: .leading, spacing: 0) {
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        headline(at: context.date)
+                    }
+                    Text(subtitle).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                }
+                .reveal(visible, order: 2, reduce: reduce)
+                Spacer(minLength: 6)
+                controls.reveal(visible, order: 2, reduce: reduce)
+            }
+            ZStack(alignment: .leading) {
+                if model.keepAwakeEditing { editor.transition(.opacity) } else { presets.transition(.opacity) }
+            }
+            .frame(height: 22)
+            .animation(reduce ? nil : .easeOut(duration: 0.15), value: model.keepAwakeEditing)
+            .reveal(visible, order: 3, reduce: reduce)
+        }
+        .onAppear { draft.load(preferences) }
+    }
+
+    @ViewBuilder private func headline(at date: Date) -> some View {
+        if let session = model.keepAwake, let remaining = session.remaining(at: date) {
+            CountingText(text: KeepAwakeFormat.clock(remaining), reduce: reduce)
+                .font(.system(size: 26, weight: .semibold, design: .rounded)).foregroundStyle(awakeTint)
+                .accessibilityLabel("Tempo acordado restante")
+        } else {
+            Text(model.keepAwake == nil ? "Desligado" : "Sem limite")
+                .font(.system(size: 20, weight: .semibold, design: .rounded))
+                .foregroundStyle(model.keepAwake == nil ? Color.white : awakeTint)
+                .frame(height: 31, alignment: .leading)
+        }
+    }
+
+    private var subtitle: String {
+        guard let session = model.keepAwake else { return "O Mac dorme normalmente" }
+        let screen = preferences.keepAwakeAllowDisplaySleep ? "a tela pode apagar" : "tela acesa"
+        guard let deadline = session.deadline else { return "Até você desligar · \(screen)" }
+        return "Até \(until(deadline)) · \(screen)"
+    }
+
+    @ViewBuilder private var controls: some View {
+        if model.keepAwake != nil {
+            Button { model.stopKeepAwake() } label: {
+                Image(systemName: "stop.fill").font(.system(size: 11, weight: .semibold))
+                    .frame(width: 28, height: 28)
+                    .background(Circle().fill(.white.opacity(0.1)))
+            }
+            .buttonStyle(PressableStyle())
+            .help("Desligar")
+            .accessibilityLabel("Desligar manter acordado")
+        } else {
+            let minutes = preferences.keepAwakeDefault
+            Button { model.startKeepAwake(minutes: minutes) } label: { Label("Ligar", systemImage: "play.fill") }
+                .buttonStyle(PillButtonStyle(fill: awakeTint, height: 30))
+                .help(minutes > 0 ? "Manter acordado por \(KeepAwakeFormat.label(minutes: minutes))" : "Manter acordado sem limite")
+        }
+    }
+
+    private var presets: some View {
+        let current = model.keepAwake?.minutes
+        let customMinutes = preferences.keepAwakeCustomUnit.minutes(preferences.keepAwakeCustomQuantity)
+        let customSelected = preferences.keepAwakeCustomUsed && current == customMinutes && !preferences.keepAwakePresets.contains(customMinutes)
+        return HStack(spacing: 2) {
+            ForEach(preferences.keepAwakePresets, id: \.self) { minutes in
+                chip(KeepAwakeFormat.chip(minutes: minutes), selected: current == minutes,
+                     accessibility: KeepAwakeFormat.label(minutes: minutes)) { model.startKeepAwake(minutes: minutes) }
+            }
+            chip("Sempre", selected: current == 0, accessibility: "Sem limite") { model.startKeepAwake(minutes: 0) }
+            Spacer(minLength: 6)
+            Button {
+                draft.load(preferences)
+                model.keepAwakeEditing = true
+                DispatchQueue.main.async { typing = true }
+            } label: {
+                Text(preferences.keepAwakeCustomUsed ? KeepAwakeFormat.chip(minutes: customMinutes) : "Outro")
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundStyle(customSelected ? awakeTint : Color.white.opacity(0.75))
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(customSelected ? awakeTint.opacity(0.16) : .clear, in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [3, 2])))
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .help("Escolher outra duração")
+            .accessibilityLabel("Outra duração")
+        }
+    }
+
+    private func chip(_ title: String, selected: Bool, accessibility: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 10.5, weight: selected ? .semibold : .regular))
+                .foregroundStyle(selected ? awakeTint : Color.white.opacity(0.55))
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background(selected ? awakeTint.opacity(0.16) : .clear, in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Manter acordado por \(accessibility)")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private var editor: some View {
+        HStack(spacing: 6) {
+            TextField("", text: Binding(get: { draft.text }, set: { draft.text = String($0.filter(\.isNumber).prefix(5)) }))
+                .textFieldStyle(.plain)
+                .font(.system(size: 11, weight: .semibold)).monospacedDigit()
+                .multilineTextAlignment(.center)
+                .focused($typing)
+                .onSubmit(apply)
+                .frame(width: 40, height: 20)
+                .background(Color.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .accessibilityLabel("Quantidade")
+            HStack(spacing: 0) {
+                ForEach(KeepAwakeUnit.allCases, id: \.self) { unit in
+                    let selected = draft.unit == unit
+                    Button { draft.unit = unit } label: {
+                        Text(unit.title)
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundStyle(selected ? Color.white : Color.white.opacity(0.55))
+                            .padding(.horizontal, 8).frame(height: 16)
+                            .background(selected ? Color.white.opacity(0.18) : .clear, in: Capsule())
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(unit.title)
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                }
+            }
+            .padding(2)
+            .background(.white.opacity(0.08), in: Capsule())
+            Spacer(minLength: 4)
+            Text(draft.minutes.map { "Até \(until(Date().addingTimeInterval(Double($0) * 60)))" } ?? "")
+                .font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(1)
+            Button("Ligar", action: apply)
+                .buttonStyle(PillButtonStyle(fill: awakeTint, height: 20))
+                .disabled(draft.minutes == nil)
+            Button { model.keepAwakeEditing = false } label: {
+                Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).frame(width: 20, height: 20)
+                    .background(Circle().fill(.white.opacity(0.08)))
+            }
+            .buttonStyle(PressableStyle())
+            .accessibilityLabel("Cancelar")
+        }
+        .onExitCommand { model.keepAwakeEditing = false }
+    }
+
+    private func apply() {
+        guard let quantity = Int(draft.text), quantity > 0 else { return }
+        let clamped = min(draft.unit.maximumQuantity, quantity)
+        preferences.keepAwakeCustomQuantity = clamped
+        preferences.keepAwakeCustomUnit = draft.unit
+        preferences.keepAwakeCustomUsed = true
+        model.startKeepAwake(minutes: draft.unit.minutes(clamped))
+    }
+
+    /// The interface is in Portuguese, so dates follow it rather than the system's language.
+    private func until(_ date: Date) -> String {
+        let style = Date.FormatStyle(locale: Locale(identifier: "pt_BR"))
+        return Calendar.current.isDateInToday(date)
+            ? date.formatted(style.hour().minute())
+            : date.formatted(style.weekday(.abbreviated).day().month(.twoDigits).hour().minute())
+    }
+}
+
+@MainActor private final class KeepAwakeDraft: ObservableObject {
+    @Published var text = ""
+    @Published var unit = KeepAwakeUnit.hours
+
+    var minutes: Int? { Int(text).flatMap { $0 > 0 ? unit.minutes($0) : nil } }
+
+    func load(_ preferences: Preferences) {
+        text = String(preferences.keepAwakeCustomQuantity)
+        unit = preferences.keepAwakeCustomUnit
+    }
+}
+
+extension KeepAwakeUnit {
+    var title: String {
+        switch self { case .minutes: return "min"; case .hours: return "h"; case .days: return "dias" }
+    }
+}
+
+private extension IslandPage {
+    var symbol: String {
+        switch self { case .music: return "music.note"; case .timer: return "timer"; case .keepAwake: return "cup.and.saucer.fill" }
+    }
+
+    var title: String {
+        switch self { case .music: return "Música"; case .timer: return "Pomodoro"; case .keepAwake: return "Manter acordado" }
     }
 }
 
@@ -947,13 +1208,14 @@ private struct ProgressRing: View {
     let progress: Double
     let lineWidth: CGFloat
     let reduce: Bool
+    var tint = timerTint
 
     var body: some View {
         ZStack {
-            Circle().stroke(timerTint.opacity(0.18), lineWidth: lineWidth)
+            Circle().stroke(tint.opacity(0.18), lineWidth: lineWidth)
             Circle()
                 .trim(from: 0, to: min(1, max(0, progress)))
-                .stroke(timerTint, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                .stroke(tint, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
                 .animation(reduce ? nil : .linear(duration: 1), value: progress)
         }

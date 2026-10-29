@@ -5,6 +5,10 @@ import NotchCore
 import os
 
 private let agentLog = Logger(subsystem: "dev.vinicius.Notch", category: "agents")
+private let awakeLog = Logger(subsystem: "dev.vinicius.Notch", category: "keepAwake")
+
+/// Tabs of the expanded island.
+enum IslandPage { case music, timer, keepAwake }
 
 @MainActor final class AppModel: ObservableObject {
     let preferences = Preferences()
@@ -14,8 +18,8 @@ private let agentLog = Logger(subsystem: "dev.vinicius.Notch", category: "agents
     @Published private(set) var countdown = Countdown()
     @Published private(set) var errors: [MediaSource: String] = [:]
     @Published private(set) var commandBusy = false
-    @Published var expanded = false
-    @Published var timerPage = false
+    @Published var expanded = false { didSet { if !expanded { keepAwakeEditing = false } } }
+    @Published var page = IslandPage.music { didSet { if page != .keepAwake { keepAwakeEditing = false } } }
     @Published var completionVisible = false
     @Published private(set) var activityOrder = ActivityOrder()
     @Published private(set) var pomodoro = PomodoroCycle()
@@ -24,6 +28,10 @@ private let agentLog = Logger(subsystem: "dev.vinicius.Notch", category: "agents
     @Published private(set) var timerDuration: TimeInterval = 1500
     /// A running source whose Automation access failed; shown only while nothing else is active.
     @Published private(set) var attention: MediaSource?
+    /// Keeps the Mac awake until the deadline, or until switched off.
+    @Published private(set) var keepAwake: KeepAwakeSession?
+    /// The custom duration field is open; the island stays expanded while it is.
+    @Published var keepAwakeEditing = false
     /// Assistant notifications, oldest first; the island shows one at a time.
     @Published private(set) var agentEvents: [AgentEvent] = []
 
@@ -34,14 +42,20 @@ private let agentLog = Logger(subsystem: "dev.vinicius.Notch", category: "agents
 
     var agentEvent: AgentEvent? { agentEvents.first }
     var showsAttention: Bool { attention != nil && activityOrder.items.isEmpty && !completionVisible }
-    var hasOtherActivity: Bool { media?.isPlaying == true || countdown.isActive || completionVisible || showsAttention }
+    /// Keep Awake on the collapsed island: both ears alone, a small cup beside music or a timer.
+    var keepAwakeVisible: Bool { keepAwake != nil && preferences.keepAwakeShowCollapsed }
+    var hasOtherActivity: Bool { media?.isPlaying == true || countdown.isActive || completionVisible || showsAttention || keepAwakeVisible }
     /// With music or a timer on the island, the assistant gets its own bubble beside it.
     var agentInBubble: Bool { agentEvent != nil && hasOtherActivity }
     /// Alone, the assistant takes both ears of the island.
     var agentInIsland: Bool { agentEvent != nil && !hasOtherActivity }
     var active: Bool { hasOtherActivity || agentEvent != nil }
     /// The collapsed island needs both ears for two activities or a short status label.
-    var compactIsWide: Bool { activityOrder.items.count > 1 || completionVisible || showsAttention || agentInIsland }
+    /// A timer's clock plus the Keep Awake cup also needs the wider ears.
+    var compactIsWide: Bool {
+        activityOrder.items.count > 1 || completionVisible || showsAttention || agentInIsland
+            || (keepAwakeVisible && countdown.isActive)
+    }
     private let runner = AutomationRunner()
     private var spotifySnapshot: MediaSnapshot?
     private var browserSnapshot: MediaSnapshot?
@@ -52,6 +66,10 @@ private let agentLog = Logger(subsystem: "dev.vinicius.Notch", category: "agents
     private var loop: Task<Void, Never>?
     private var timerTask: Task<Void, Never>?
     private var completionTask: Task<Void, Never>?
+    private var keepAwakeTask: Task<Void, Never>?
+    private let power = PowerAssertion()
+    /// Started on battery below the cutoff: the user chose it, so the cutoff does not apply.
+    private var keepAwakeStartedLow = false
     private var subscriptions = Set<AnyCancellable>()
     private lazy var agentServer = AgentHookServer(
         onEvent: { [weak self] event in Task { @MainActor in self?.receive(event) } },
@@ -66,7 +84,7 @@ private let agentLog = Logger(subsystem: "dev.vinicius.Notch", category: "agents
     init() {
         let workspace = NSWorkspace.shared.notificationCenter
         workspace.publisher(for: NSWorkspace.willSleepNotification).sink { [weak self] _ in
-            Task { @MainActor in self?.sleeping = true; self?.loop?.cancel(); self?.timerTask?.cancel() }
+            Task { @MainActor in self?.sleeping = true; self?.loop?.cancel(); self?.timerTask?.cancel(); self?.keepAwakeTask?.cancel() }
         }.store(in: &subscriptions)
         workspace.publisher(for: NSWorkspace.didWakeNotification).sink { [weak self] _ in
             Task { @MainActor in self?.sleeping = false; self?.start() }
@@ -94,6 +112,13 @@ private let agentLog = Logger(subsystem: "dev.vinicius.Notch", category: "agents
         preferences.$agentsPaused.dropFirst()
             .sink { [weak self] paused in self?.setAgentServer(running: !paused && self?.preferences.agentsEnabled == true) }
             .store(in: &subscriptions)
+        preferences.$keepAwakeAllowDisplaySleep.dropFirst()
+            .sink { [weak self] allow in if self?.keepAwake != nil { self?.power.hold(display: !allow) } }
+            .store(in: &subscriptions)
+        preferences.$keepAwakeBatteryCutoff.dropFirst()
+            .sink { [weak self] cutoff in if cutoff { self?.checkBattery() } }
+            .store(in: &subscriptions)
+        power.powerChanged = { [weak self] in self?.checkBattery() }
     }
 
     func start() {
@@ -101,6 +126,7 @@ private let agentLog = Logger(subsystem: "dev.vinicius.Notch", category: "agents
         loop?.cancel()
         checkTimer()
         scheduleTimer()
+        checkKeepAwake()
         loop = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self, !self.sleeping else { return }
@@ -111,7 +137,54 @@ private let agentLog = Logger(subsystem: "dev.vinicius.Notch", category: "agents
         }
     }
 
-    func stop() { loop?.cancel(); timerTask?.cancel(); completionTask?.cancel(); setAgentServer(running: false) }
+    func stop() {
+        loop?.cancel(); timerTask?.cancel(); completionTask?.cancel(); keepAwakeTask?.cancel()
+        power.release()
+        setAgentServer(running: false)
+    }
+
+    // MARK: Keep awake
+
+    /// Zero or fewer minutes keeps the Mac awake until switched off.
+    func startKeepAwake(minutes: Int) {
+        keepAwake = KeepAwakeSession(minutes: minutes)
+        keepAwakeEditing = false
+        keepAwakeStartedLow = PowerAssertion.batteryLevelOnBattery().map { $0 < 20 } ?? false
+        power.hold(display: !preferences.keepAwakeAllowDisplaySleep)
+        awakeLog.info("start minutes=\(minutes)")
+        scheduleKeepAwake()
+    }
+
+    func stopKeepAwake() {
+        keepAwakeTask?.cancel()
+        keepAwakeTask = nil
+        keepAwake = nil
+        power.release()
+    }
+
+    private func scheduleKeepAwake() {
+        keepAwakeTask?.cancel()
+        guard let remaining = keepAwake?.remaining(), !sleeping else { return }
+        keepAwakeTask = Task { [weak self] in
+            do { try await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000)) } catch { return }
+            self?.checkKeepAwake()
+        }
+    }
+
+    /// Ends an expired period; otherwise re-arms the deadline, e.g. after waking.
+    private func checkKeepAwake() {
+        guard let keepAwake else { return }
+        if keepAwake.isExpired() { awakeLog.info("expired"); stopKeepAwake() } else { scheduleKeepAwake() }
+    }
+
+    private func checkBattery() {
+        guard keepAwake != nil, preferences.keepAwakeBatteryCutoff else { return }
+        guard let level = PowerAssertion.batteryLevelOnBattery() else { keepAwakeStartedLow = false; return }
+        if level >= 20 { keepAwakeStartedLow = false; return }
+        guard !keepAwakeStartedLow else { return }
+        awakeLog.info("battery cutoff level=\(level)")
+        stopKeepAwake()
+    }
 
     // MARK: Assistants
 
@@ -278,7 +351,7 @@ private let agentLog = Logger(subsystem: "dev.vinicius.Notch", category: "agents
         timerIsPomodoro = false
         synchronizeActivities()
         scheduleTimer()
-        if showPage { timerPage = true }
+        if showPage { page = .timer }
         if Bundle.main.bundleURL.pathExtension == "app" {
             UNUserNotificationCenter.current().requestAuthorization(options: [.alert]) { _, _ in }
         }
@@ -299,7 +372,7 @@ private let agentLog = Logger(subsystem: "dev.vinicius.Notch", category: "agents
         var next = activityOrder
         next.update(music: media?.isPlaying == true, timer: countdown.isActive)
         guard next != activityOrder else { return }
-        if activityOrder.items.isEmpty, let first = next.items.first { timerPage = first == .timer }
+        if activityOrder.items.isEmpty, let first = next.items.first { page = first == .timer ? .timer : .music }
         activityOrder = next
     }
 

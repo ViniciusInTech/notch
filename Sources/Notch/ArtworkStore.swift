@@ -22,6 +22,15 @@ private struct DecodedArtwork {
     private var retryAfter = Date.distantPast
     private var loading = false
 
+    /// No URLCache: thumbnails already live in `cache`, so raw responses never touch memory or disk twice.
+    nonisolated private static let session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.httpMaximumConnectionsPerHost = 2
+        return URLSession(configuration: configuration)
+    }()
+
     init() { cache.countLimit = 12; cache.totalCostLimit = 12 * 1024 * 1024 }
 
     func load(_ url: URL?) {
@@ -56,7 +65,7 @@ private struct DecodedArtwork {
     nonisolated private static func fetchThumbnail(_ url: URL) async throws -> DecodedArtwork? {
         var request = URLRequest(url: url)
         request.timeoutInterval = 8
-        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        let (bytes, response) = try await session.bytes(for: request)
         guard let response = response as? HTTPURLResponse, response.statusCode == 200,
               response.url?.scheme == "https", response.expectedContentLength <= 2_000_000 else { return nil }
         var data = Data()

@@ -2,7 +2,7 @@
   <img src="Resources/AppIcon.png" width="112" alt="Ícone do Notch: uma ilha com ondas em tons de azul e lilás">
   <h1>Notch</h1>
   <p><strong>Sua música e seu tempo, no lugar certo.</strong></p>
-  <p>Uma ilha dinâmica para macOS, com controles de música e Pomodoro integrado.<br>Discreta, personalizável e sem anúncios.</p>
+  <p>Uma ilha dinâmica para macOS, com controles de música, Pomodoro integrado e modo para manter o Mac acordado.<br>Discreta, personalizável e sem anúncios.</p>
   <p>macOS 14+ · Swift · SwiftUI + AppKit · Uso não comercial</p>
   <p>
     <a href="#por-que-criei-o-notch">A história</a> ·
@@ -53,6 +53,26 @@ superiores acompanham o formato do recorte do Mac.
 Trocar entre Música e Pomodoro não interrompe a outra atividade. Quando os dois
 estão ativos, a ilha recolhida mostra os indicadores na ordem em que começaram.
 
+### Seu Mac acordado pelo tempo que você escolher
+
+<p align="center">
+  <img src="docs/assets/notch-keep-awake.png" width="760" alt="Captura real da aba Manter acordado com anel verde-água, tempo restante de quase duas horas, horário de término, botão de parar e atalhos de 15 minutos a 4 horas, Sempre e Outro">
+</p>
+
+A xícara, ao lado de Música e Pomodoro, impede o Mac de dormir: escolha um dos
+atalhos, deixe sem limite ou toque em **Outro** para digitar um valor em
+minutos, horas ou dias, sem sair da ilha.
+
+<p align="center">
+  <img src="docs/assets/notch-keep-awake-custom.png" width="440" alt="Captura real do campo Outro, com a quantidade 3, as unidades min, h e dias, a previsão de término e o botão Ligar">
+  &nbsp;
+  <img src="docs/assets/notch-keep-awake-compact.png" width="440" alt="Captura real da ilha recolhida com a capa da música à esquerda e, à direita, as ondas seguidas de uma xícara pequena verde-água">
+</p>
+
+Recolhida, a ilha mostra a xícara pequena ao lado das ondas da música ou do
+tempo do timer. Funciona como o `caffeinate` do macOS, sem processo extra, e
+os atalhos ficam em **Configurações → Acordado**.
+
 ### Seus assistentes de código chamam sem tirar a música
 
 <p align="center">
@@ -82,6 +102,7 @@ oferece. Enquanto o mini chat está aberto, nada muda sozinho.
 - **Spotify sem conta extra:** integração com o app instalado, sem chave de API.
 - **Navegador opcional:** mídia HTML5 da aba ativa do Safari ou Google Chrome.
 - **Pomodoro configurável:** duração de foco e pausas, número de sessões por ciclo e início automático opcional.
+- **Manter acordado:** impede o Mac de dormir por um tempo escolhido, sem limite ou por minutos, horas ou dias, como o `caffeinate`, sem processo extra.
 - **Avisos de assistentes:** Claude Code e Codex pedem permissões, aprovação de planos e respostas pela ilha; Claude, Codex e Cursor avisam ao concluir.
 - **Atividades simultâneas:** música e contagem continuam ao trocar de aba.
 - **Ondas nas cores da capa:** animação decorativa, sem capturar ou analisar áudio.
@@ -175,6 +196,14 @@ Também há um temporizador com duração personalizada nas configurações.
 A contagem considera o horário absoluto: se o Mac dormir, o aviso é apresentado
 quando ele acordar. Fechar o aplicativo encerra a sessão atual do timer.
 
+### Manter acordado
+
+A aba com a xícara mantém o Mac acordado por 15 min, 30 min, 1 h, 2 h, 4 h, sem
+limite ou por um valor em minutos, horas ou dias. Os atalhos, a duração do botão
+Ligar, a tela apagar ou não e o corte com bateria abaixo de 20% ficam em
+**Configurações → Acordado**. Fechar a tampa ainda coloca o Mac para dormir, e
+sair do Notch encerra o período.
+
 ### Assistentes de código
 
 Em **Configurações → Assistentes**, ative os avisos e instale o hook de cada
@@ -238,7 +267,7 @@ Developer ID e notarização exige configuração própria; o script não faz no
 
 | Pasta | Responsabilidade |
 | --- | --- |
-| `Sources/NotchCore` | Geometria, tempo, Pomodoro, ordem de atividades e cores das capas. |
+| `Sources/NotchCore` | Geometria, tempo, Pomodoro, manter acordado, ordem de atividades e cores das capas. |
 | `Sources/Notch` | Interface nativa, painel, configurações e integrações. |
 | `Sources/NotchHook` | `notch-hook`, ponte entre os hooks dos assistentes e o app. |
 | `Tests/NotchCoreTests` | Testes das regras do app. |

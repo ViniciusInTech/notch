@@ -102,6 +102,21 @@ mensagem. O hook de permissão espera até 1 h; o Notch decide antes pelo própr
 prazo. Eventos são registrados em `Logger` (subsistema dev.vinicius.Notch,
 categoria agents). `AgentHookInstaller` edita os arquivos de hooks do usuário só
 por ação explícita.
+Manter acordado: `PowerAssertion` cria no próprio processo a asserção de energia
+que o `caffeinate` usa (IOPMAssertionCreateWithName), PreventUserIdleDisplaySleep
+ou, com “Permitir que a tela apague”, PreventUserIdleSystemSleep. Não há processo
+auxiliar; o macOS libera a asserção se o app sair. `KeepAwakeSession` (núcleo)
+guarda prazo absoluto ou nenhum; `AppModel` agenda uma única tarefa até o prazo,
+cancelada na suspensão e reavaliada ao acordar. A fonte de energia só é observada
+(IOPSNotificationCreateRunLoopSource) enquanto a asserção existe; com o corte
+ligado, cair abaixo de 20% na bateria encerra o período, exceto se ele começou
+abaixo disso. É a terceira aba da ilha aberta: anel, tempo e controle, com até
+cinco atalhos, “Sempre” e “Outro” (quantidade em minutos, horas ou dias, até 30
+dias), que troca a linha de atalhos por um campo na mesma altura; enquanto se
+digita, a ilha não recolhe. Recolhida, sozinho ocupa os dois lados (xícara e tempo
+ou ∞); com música ou timer, vira uma xícara pequena na borda externa da orelha
+direita, ao lado das ondas ou do tempo. Com timer, a ilha usa as orelhas largas
+para o relógio e a xícara caberem.
 O botão Quit usa NSApplication.terminate e o delegate cancela as tarefas do app.
 
 A capa ocupa 50 × 50 pontos no painel aberto. Na ilha recolhida usa 22 pontos,

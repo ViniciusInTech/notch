@@ -20,6 +20,17 @@ import NotchCore
     /// Do Not Disturb for assistant notifications, e.g. while sharing the screen.
     @Published var agentsPaused: Bool { didSet { defaults.set(agentsPaused, forKey: "agentsPaused") } }
     @Published var agentPermissionWait: Int { didSet { defaults.set(agentPermissionWait, forKey: "agentPermissionWait") } }
+    /// Quick-access durations in minutes, shown as chips in the Keep Awake tab.
+    @Published var keepAwakePresets: [Int] { didSet { defaults.set(keepAwakePresets, forKey: "keepAwakePresets") } }
+    /// Duration used by the play button; zero means no time limit.
+    @Published var keepAwakeDefault: Int { didSet { defaults.set(keepAwakeDefault, forKey: "keepAwakeDefault") } }
+    @Published var keepAwakeAllowDisplaySleep: Bool { didSet { defaults.set(keepAwakeAllowDisplaySleep, forKey: "keepAwakeAllowDisplaySleep") } }
+    @Published var keepAwakeBatteryCutoff: Bool { didSet { defaults.set(keepAwakeBatteryCutoff, forKey: "keepAwakeBatteryCutoff") } }
+    @Published var keepAwakeShowCollapsed: Bool { didSet { defaults.set(keepAwakeShowCollapsed, forKey: "keepAwakeShowCollapsed") } }
+    /// Last custom duration, offered again by the "Outro" chip.
+    @Published var keepAwakeCustomQuantity: Int { didSet { defaults.set(keepAwakeCustomQuantity, forKey: "keepAwakeCustomQuantity") } }
+    @Published var keepAwakeCustomUnit: KeepAwakeUnit { didSet { defaults.set(keepAwakeCustomUnit.rawValue, forKey: "keepAwakeCustomUnit") } }
+    @Published var keepAwakeCustomUsed: Bool { didSet { defaults.set(keepAwakeCustomUsed, forKey: "keepAwakeCustomUsed") } }
 
     var pomodoro: PomodoroSettings {
         PomodoroSettings(focusMinutes: pomodoroFocusMinutes, shortBreakMinutes: pomodoroShortBreakMinutes,
@@ -35,7 +46,11 @@ import NotchCore
                                      "pomodoroFocusMinutes": 25, "pomodoroShortBreakMinutes": 5,
                                      "pomodoroLongBreakMinutes": 15, "pomodoroSessions": 4,
                                      "pomodoroAutoStart": false, "agentsEnabled": false,
-                                     "agentsPaused": false, "agentPermissionWait": 30])
+                                     "agentsPaused": false, "agentPermissionWait": 30,
+                                     "keepAwakePresets": KeepAwakePresets.defaults, "keepAwakeDefault": 60,
+                                     "keepAwakeAllowDisplaySleep": false, "keepAwakeBatteryCutoff": true,
+                                     "keepAwakeShowCollapsed": true, "keepAwakeCustomQuantity": 3,
+                                     "keepAwakeCustomUnit": "hours", "keepAwakeCustomUsed": false])
         spotifyEnabled = defaults.bool(forKey: "spotifyEnabled")
         browserEnabled = defaults.bool(forKey: "browserEnabled")
         browser = MediaSource(rawValue: defaults.string(forKey: "browser") ?? "safari") == .chrome ? .chrome : .safari
@@ -55,5 +70,14 @@ import NotchCore
         agentsEnabled = defaults.bool(forKey: "agentsEnabled")
         agentsPaused = defaults.bool(forKey: "agentsPaused")
         agentPermissionWait = min(120, max(10, defaults.integer(forKey: "agentPermissionWait")))
+        keepAwakePresets = KeepAwakePresets.normalized(defaults.array(forKey: "keepAwakePresets") as? [Int] ?? KeepAwakePresets.defaults)
+        keepAwakeDefault = min(KeepAwakePresets.range.upperBound, max(0, defaults.integer(forKey: "keepAwakeDefault")))
+        keepAwakeAllowDisplaySleep = defaults.bool(forKey: "keepAwakeAllowDisplaySleep")
+        keepAwakeBatteryCutoff = defaults.bool(forKey: "keepAwakeBatteryCutoff")
+        keepAwakeShowCollapsed = defaults.bool(forKey: "keepAwakeShowCollapsed")
+        let unit = KeepAwakeUnit(rawValue: defaults.string(forKey: "keepAwakeCustomUnit") ?? "") ?? .hours
+        keepAwakeCustomUnit = unit
+        keepAwakeCustomQuantity = min(unit.maximumQuantity, max(1, defaults.integer(forKey: "keepAwakeCustomQuantity")))
+        keepAwakeCustomUsed = defaults.bool(forKey: "keepAwakeCustomUsed")
     }
 }

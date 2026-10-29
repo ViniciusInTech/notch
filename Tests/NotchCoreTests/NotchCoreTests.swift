@@ -284,4 +284,55 @@ struct NotchCoreTests {
         #expect(centered.cardMinX == -210)
         #expect(centered.halfWidth == 210)
     }
+
+    @Test func testKeepAwakeSessionExpiresAtDeadlineOrNeverWithoutLimit() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let timed = KeepAwakeSession(minutes: 30, at: now)
+        #expect(timed.remaining(at: now.addingTimeInterval(600)) == 1200)
+        #expect(abs(timed.progress(at: now.addingTimeInterval(900)) - 0.5) < 0.0001)
+        #expect(!timed.isExpired(at: now.addingTimeInterval(1799)))
+        #expect(timed.isExpired(at: now.addingTimeInterval(1800)))
+        let open = KeepAwakeSession(minutes: 0, at: now)
+        #expect(open.isIndefinite && open.minutes == 0)
+        #expect(open.remaining(at: now) == nil)
+        #expect(open.progress(at: now.addingTimeInterval(1e6)) == 1)
+        #expect(!open.isExpired(at: now.addingTimeInterval(1e9)))
+        #expect(KeepAwakeSession(minutes: 999_999, at: now).minutes == KeepAwakeUnit.maximumMinutes)
+    }
+
+    @Test func testKeepAwakeCustomUnitsConvertAndClampToThirtyDays() {
+        #expect(KeepAwakeUnit.minutes.minutes(45) == 45)
+        #expect(KeepAwakeUnit.hours.minutes(3) == 180)
+        #expect(KeepAwakeUnit.days.minutes(2) == 2880)
+        #expect(KeepAwakeUnit.days.minutes(90) == 43_200)
+        #expect(KeepAwakeUnit.hours.minutes(0) == 60)
+    }
+
+    @Test func testKeepAwakePresetsStayOrderedUniqueAndStepByScale() {
+        #expect(KeepAwakePresets.normalized([240, 15, 15, 1, 5000, 60, 30]) == [5, 15, 30, 60, 240])
+        #expect(KeepAwakePresets.step(55, up: true) == 60)
+        #expect(KeepAwakePresets.step(60, up: true) == 75)
+        #expect(KeepAwakePresets.step(60, up: false) == 55)
+        #expect(KeepAwakePresets.step(65, up: false) == 60)
+        #expect(KeepAwakePresets.step(720, up: true) == 780)
+        #expect(KeepAwakePresets.step(5, up: false) == 5)
+        #expect(KeepAwakePresets.step(1440, up: true) == 1440)
+        #expect(KeepAwakePresets.next(after: [15, 30, 60]) == 120)
+        #expect(KeepAwakePresets.next(after: [1000]) == 1020)
+    }
+
+    @Test func testKeepAwakeLabelsFitChipsAndEars() {
+        #expect(KeepAwakeFormat.label(minutes: 15) == "15 min")
+        #expect(KeepAwakeFormat.label(minutes: 90) == "1 h 30 min")
+        #expect(KeepAwakeFormat.label(minutes: 2880) == "2 dias")
+        #expect(KeepAwakeFormat.chip(minutes: 90) == "1h30")
+        #expect(KeepAwakeFormat.chip(minutes: 120) == "2 h")
+        #expect(KeepAwakeFormat.chip(minutes: 4320) == "3 d")
+        #expect(KeepAwakeFormat.clock(3492) == "58:12")
+        #expect(KeepAwakeFormat.clock(7170) == "1:59:30")
+        #expect(KeepAwakeFormat.clock(97_200) == "1 d 3 h")
+        #expect(KeepAwakeFormat.compact(1450) == "24:10")
+        #expect(KeepAwakeFormat.compact(5040) == "1h24")
+        #expect(KeepAwakeFormat.compact(183_600) == "2d 3h")
+    }
 }

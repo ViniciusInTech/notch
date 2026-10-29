@@ -16,6 +16,14 @@ verificados durante o desenvolvimento; repita-os para cada versão relevante.
 - [ ] Mover com uma versão anterior aberta: a anterior é encerrada e substituída.
 - [ ] DMG assinado, notarizado e grampeado abre só com a confirmação padrão.
 
+## Manter acordado
+
+- [ ] `pmset -g assertions` mostra “Notch: manter acordado” ao ligar e some ao desligar, terminar o prazo ou sair do app.
+- [ ] Com “Permitir que a tela apague”, a asserção vira PreventUserIdleSystemSleep.
+- [ ] “Outro” aceita minutos, horas e dias; a ilha não recolhe enquanto se digita.
+- [ ] Recolhida: xícara e tempo sozinho; xícara pequena com música, timer ou ambos, sem cortar o tempo.
+- [ ] Na bateria, abaixo de 20%, o corte encerra o período quando habilitado.
+
 ## Interface e atividades
 
 - [x] Painel compacto, com abas Música e Pomodoro e sem controle de volume.
