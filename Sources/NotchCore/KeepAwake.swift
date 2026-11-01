@@ -15,6 +15,21 @@ public struct KeepAwakeSession: Equatable, Sendable {
         deadline = minutes > 0 ? now.addingTimeInterval(Double(min(minutes, KeepAwakeUnit.maximumMinutes)) * 60) : nil
     }
 
+    private init(start: Date, deadline: Date?, minutes: Int) {
+        self.start = start
+        self.deadline = deadline
+        self.minutes = minutes
+    }
+
+    /// Pushes the deadline later, keeping the start; never beyond the maximum from now.
+    /// A period without a limit stays as it is.
+    public func extended(byMinutes extra: Int, at now: Date = Date()) -> KeepAwakeSession {
+        guard let deadline, extra > 0 else { return self }
+        let limit = now.addingTimeInterval(Double(KeepAwakeUnit.maximumMinutes) * 60)
+        let next = min(limit, max(deadline, now).addingTimeInterval(Double(extra) * 60))
+        return KeepAwakeSession(start: start, deadline: next, minutes: Int(next.timeIntervalSince(start) / 60))
+    }
+
     public func remaining(at now: Date = Date()) -> TimeInterval? {
         deadline.map { max(0, $0.timeIntervalSince(now)) }
     }

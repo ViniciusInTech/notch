@@ -1,8 +1,8 @@
 <div align="center">
   <img src="Resources/AppIcon.png" width="112" alt="Ícone do Notch: uma ilha com ondas em tons de azul e lilás">
   <h1>Notch</h1>
-  <p><strong>Sua música e seu tempo, no lugar certo.</strong></p>
-  <p>Uma ilha dinâmica para macOS, com controles de música, Pomodoro integrado e modo para manter o Mac acordado.<br>Discreta, personalizável e sem anúncios.</p>
+  <p><strong>Sua música, seu tempo e seus arquivos, no lugar certo.</strong></p>
+  <p>Uma ilha dinâmica para macOS, com controles de música, Pomodoro, bandeja de arquivos, próxima reunião, avisos de assistentes de código e modo para manter o Mac acordado.<br>Discreta, personalizável e sem anúncios.</p>
   <p>macOS 14+ · Swift · SwiftUI + AppKit · Uso não comercial</p>
   <p>
     <a href="#por-que-criei-o-notch">A história</a> ·
@@ -40,9 +40,22 @@ quer deixar alguma parte melhor? Abra uma issue ou envie um pull request.
   <img src="docs/assets/notch-compact.png" width="560" alt="Captura real da ilha recolhida junto ao recorte da câmera, com capa e ondas à esquerda e o anel do timer com o tempo restante à direita">
 </p>
 
-A ilha cresce só para os lados quando há atividade. Ao passar o mouse, abre
-os controles a partir do notch; ao retirar, recolhe suavemente. Os encaixes
-superiores acompanham o formato do recorte do Mac.
+A ilha cresce só para os lados quando há atividade. Ao retirar o mouse, recolhe
+suavemente. Os encaixes superiores acompanham o formato do recorte do Mac.
+
+### Controles sem ocupar a tela
+
+<p align="center">
+  <img src="docs/assets/notch-compact-hover.png" width="640" alt="Captura real do hover compacto: a ilha alargada na altura do notch, com capa, título, artista e tempo da música à esquerda e os botões anterior, pausar e próxima à direita">
+</p>
+
+No **hover compacto**, padrão, passar o mouse alarga a ilha só para os lados, na
+altura do notch, com a atividade e seus controles: música, timer, Acordado,
+reunião, download ou bandeja. Com mais de uma atividade, o botão ⇆ alterna entre
+elas. Um clique abre o painel completo, já na aba que importa: a Bandeja, se
+recebeu arquivos há pouco; senão a única atividade em andamento; com várias, a
+última aba usada. Quem preferir o painel ao passar o mouse escolhe **Expandir
+para baixo** em **Configurações → Geral**.
 
 ### Seu Pomodoro continua, sua música também
 
@@ -94,6 +107,56 @@ Passe o mouse na bolinha para abrir um mini chat: permita, recuse, escreva o
 que o assistente deve fazer em vez disso ou escolha uma das opções que ele
 oferece. Enquanto o mini chat está aberto, nada muda sozinho.
 
+### Uma bandeja para arrastar e soltar
+
+<p align="center">
+  <img src="docs/assets/notch-shelf.png" width="760" alt="Captura real da aba Bandeja com cinco itens, entre imagens, PDF, documento e ZIP, e os botões Compartilhar e Limpar">
+</p>
+
+Arraste um arquivo até o notch: ao se aproximar, a ilha abre a área de soltar,
+abaixo da borda da tela. A bandeja guarda só a **referência** ao original, sem
+ocupar espaço; imagens, links e textos do navegador viram cópias temporárias.
+Depois, puxe o item para qualquer pasta, app ou outra tela: ele é copiado (com
+⌘, movido) e sai da bandeja. Os itens expiram sozinhos, por padrão em 24 horas.
+
+<p align="center">
+  <img src="docs/assets/notch-shelf-compact.png" width="640" alt="Captura real do hover compacto da bandeja, com miniaturas dos itens para arrastar e o botão de limpar">
+</p>
+
+<p align="center">
+  <img src="docs/assets/notch-screenshot.png" width="440" alt="Captura real da ilha recolhida com a miniatura de um print à esquerda e Na bandeja à direita">
+  &nbsp;
+  <img src="docs/assets/notch-download.png" width="440" alt="Captura real da ilha recolhida com o nome de um PDF à esquerda e Baixado em verde à direita">
+</p>
+
+Se quiser, prints e downloads concluídos entram na bandeja na hora. O último
+download fica no hover compacto por dois minutos, com **Abrir**, **Mostrar no
+Finder** e **Guardar na bandeja**.
+
+<p align="center">
+  <img src="docs/assets/notch-download-compact.png" width="640" alt="Captura real do hover compacto de um download, com nome, tamanho e pasta do arquivo e os botões Abrir, Mostrar no Finder e Guardar na bandeja">
+</p>
+
+### Reuniões e chamadas
+
+<p align="center">
+  <img src="docs/assets/notch-meeting.png" width="440" alt="Captura real da ilha recolhida com o ícone de calendário e o título da reunião à esquerda e em 4 min à direita">
+  &nbsp;
+  <img src="docs/assets/notch-call.png" width="440" alt="Captura real da ilha recolhida com Em chamada e um ícone de câmera verde à esquerda e Silencioso à direita">
+</p>
+
+Com a **Agenda** ligada, a próxima reunião do app Calendário aparece minutos antes
+e mostra “agora” no horário. No hover, **Entrar** abre o link do Meet, Zoom,
+Teams e outros serviços de vídeo.
+
+<p align="center">
+  <img src="docs/assets/notch-meeting-compact.png" width="640" alt="Captura real do hover compacto da reunião, com título, horário, indicação de vídeo e os botões Entrar e dispensar">
+</p>
+
+Quando outro app usa a câmera ou o microfone, o Notch percebe a chamada e deixa
+os avisos dos assistentes silenciosos, sem som ou pausados, como você escolher.
+Ao terminar, um único som avisa o que chegou durante a chamada.
+
 *As imagens são capturas reais do aplicativo; as faixas e os tempos exibidos variam durante o uso.*
 
 ## O que o Notch faz
@@ -104,6 +167,14 @@ oferece. Enquanto o mini chat está aberto, nada muda sozinho.
 - **Pomodoro configurável:** duração de foco e pausas, número de sessões por ciclo e início automático opcional.
 - **Manter acordado:** impede o Mac de dormir por um tempo escolhido, sem limite ou por minutos, horas ou dias, como o `caffeinate`, sem processo extra.
 - **Avisos de assistentes:** Claude Code e Codex pedem permissões, aprovação de planos e respostas pela ilha; Claude, Codex e Cursor avisam ao concluir.
+- **Alerta configurável:** notificação do macOS com som (som do sistema à escolha), sem som ou modo silencioso, só na ilha.
+- **Hover compacto:** ao passar o mouse, a ilha cresce só para os lados com os controles da atividade, sem ocupar a tela.
+- **Aba certa ao abrir:** bandeja com itens recentes, senão a única atividade em andamento, senão a última aba usada.
+- **Silencioso em chamadas:** com câmera ou microfone em uso, os avisos dos assistentes ficam silenciosos, sem som ou pausados.
+- **Próxima reunião:** opcional, mostra a reunião do Calendário alguns minutos antes, com botão para entrar.
+- **Bandeja de arquivos:** arraste arquivos até o notch e puxe de volta em qualquer tela; guarda só referências, sai da bandeja ao soltar e expira sozinha.
+- **Prints e downloads:** opcionais, entram na bandeja ou avisam na ilha assim que ficam prontos.
+- **Carregador:** mostra o nível ao conectar ou desconectar, carga completa e, se quiser, bateria fraca, por alguns segundos.
 - **Atividades simultâneas:** música e contagem continuam ao trocar de aba.
 - **Ondas nas cores da capa:** animação decorativa, sem capturar ou analisar áudio.
 - **Configurações nativas:** iniciar no login, reduzir movimento e som ao concluir.
@@ -235,6 +306,43 @@ outra atividade, ocupa as laterais da própria ilha. Passar o mouse abre o mini 
 Reinstale os hooks se mover o Notch.app de lugar. No Codex, os hooks precisam
 estar habilitados na versão instalada.
 
+**Alerta:** em **Configurações → Assistentes**, escolha **Notificação com som**,
+**Notificação sem som** ou **Silencioso** (só a ilha), o som do sistema e se as
+conclusões também alertam. Pedidos de permissão e perguntas sempre seguem o modo
+escolhido; a notificação some da Central quando você responde na ilha.
+
+**Chamadas:** com **Ajustar avisos durante chamadas** ligado, o Notch observa se
+outro app usa a câmera ou o microfone (ou só a câmera), sem acessar imagem ou
+áudio. Durante a chamada, os avisos ficam silenciosos, sem som ou pausados; ao
+terminar, um único som avisa os pedidos pendentes. Detectar pelo microfone
+também reage a ditado e gravações.
+
+### Bandeja, prints e downloads
+
+A bandeja vem ligada e fica em **Configurações → Bandeja**: prazo para os itens
+saírem (1 hora, 24 horas, 7 dias ou nunca), copiar ou mover ao arrastar para
+fora, tirar o item ao soltar em outro lugar e mostrar a contagem na ilha
+recolhida. Itens que apontam para arquivos apagados ou enviados ao Lixo somem
+sozinhos.
+
+**Prints na bandeja** e **Avisar downloads** vêm desligados. Ao ligar, o macOS
+pede acesso à pasta das capturas de tela (Mesa, por padrão) ou à pasta
+Downloads. O Notch só observa essas pastas, sem consultas periódicas, e ignora
+downloads em andamento.
+
+### Próxima reunião
+
+Em **Configurações → Agenda**, ligue **Mostrar próxima reunião** e permita o
+acesso ao Calendário. Escolha a antecedência (1, 5, 10 ou 15 minutos), se quer só
+eventos com link de vídeo e quais calendários usar. Eventos de dia inteiro,
+cancelados ou recusados ficam de fora, e nada é alterado no calendário.
+
+### Carregador
+
+Em Macs com bateria, **Configurações → Geral → Carregador** mostra o nível ao
+conectar ou desconectar, a carga completa e, se você ligar, bateria fraca a 20% e
+10%. Cada aviso aparece por alguns segundos e some sozinho.
+
 ## Compilar e executar
 
 Instale Swift 6 e as Command Line Tools (`xcode-select --install`) ou use o Xcode.
@@ -262,12 +370,14 @@ a identidade final do aplicativo.
 
 O empacotamento local usa assinatura ad hoc. A distribuição pública com
 Developer ID e notarização exige configuração própria; o script não faz notarização.
+Como a assinatura ad hoc muda a cada build, o macOS pode pedir de novo as
+permissões (Automação, Calendário, pastas) ao instalar uma versão recompilada.
 
 ## Como o projeto está organizado
 
 | Pasta | Responsabilidade |
 | --- | --- |
-| `Sources/NotchCore` | Geometria, tempo, Pomodoro, manter acordado, ordem de atividades e cores das capas. |
+| `Sources/NotchCore` | Geometria, tempo, Pomodoro, manter acordado, bandeja, reuniões, energia, alertas e cores das capas. |
 | `Sources/Notch` | Interface nativa, painel, configurações e integrações. |
 | `Sources/NotchHook` | `notch-hook`, ponte entre os hooks dos assistentes e o app. |
 | `Tests/NotchCoreTests` | Testes das regras do app. |
@@ -290,6 +400,10 @@ O Spotify usa eventos de reprodução e reconciliação periódica enquanto est�
 aberto. O navegador só é consultado quando a integração está habilitada e ele
 está aberto. As consultas param durante a suspensão do Mac; respostas de
 automação não bloqueiam a interface. Capas têm limites de download e cache.
+
+Chamadas, energia, pastas observadas e calendário usam notificações do próprio
+macOS, sem consultas periódicas, e só existem com as opções ligadas. A agenda
+agenda uma única espera até a próxima mudança da reunião.
 
 O consumo real varia conforme o Mac e as integrações ativas. Não há promessa de
 uma porcentagem fixa de CPU ou memória.

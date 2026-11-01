@@ -15,15 +15,25 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.4.0</string>
+	<string>0.5.0</string>
 	<key>CFBundleVersion</key>
-	<string>4</string>
+	<string>5</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>O Notch controla a reprodução do Spotify e, se você habilitar, a mídia da aba ativa do navegador.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>O Notch mostra a próxima reunião na ilha, com o link para entrar. Nada é alterado no seu calendário.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>O Notch mostra a próxima reunião na ilha, com o link para entrar. Nada é alterado no seu calendário.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Com “Prints na bandeja” ligado, o Notch observa a pasta onde o macOS salva as capturas de tela.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Com “Prints na bandeja” ligado, o Notch observa a pasta onde o macOS salva as capturas de tela.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Com “Avisar downloads” ligado, o Notch observa a pasta Downloads para avisar quando um arquivo termina.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSPrincipalClass</key>

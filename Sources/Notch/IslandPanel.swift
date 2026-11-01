@@ -2,10 +2,15 @@ import AppKit
 import Combine
 import SwiftUI
 import NotchCore
+import os
+
+private let dropLog = Logger(subsystem: "dev.vinicius.Notch", category: "shelf")
 
 private final class IslandPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+    /// The frame extends past the top of the screen on purpose; AppKit must not pull it back.
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
 }
 
 private final class IslandHostingView: NSHostingView<IslandView> {
@@ -34,10 +39,55 @@ private final class IslandHostingView: NSHostingView<IslandView> {
     }
 }
 
+/// The window's content view: it receives drops for the shelf, so SwiftUI's own drag
+/// registration inside the hosting view can never take them over. Outside the island it lets
+/// clicks and drags through to the apps below.
+private final class IslandDropView: NSView {
+    var islandContains: ((NSPoint) -> Bool)?
+    /// Drops onto the notch: entering, leaving, and the pasteboard to read on release.
+    var dropTargeted: ((Bool) -> Void)?
+    var dropPerformed: ((NSPasteboard) -> Bool)?
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if let window, let islandContains {
+            let local = superview?.convert(point, to: nil) ?? point
+            guard islandContains(window.convertPoint(toScreen: local)) else { return nil }
+        }
+        return super.hitTest(point)
+    }
+
+    private func accepts(_ sender: NSDraggingInfo) -> Bool {
+        // Drags that start on the shelf itself are not dropped back onto it.
+        dropPerformed != nil && sender.draggingSource == nil
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        dropLog.info("drag entered accepts=\(self.accepts(sender))")
+        guard accepts(sender) else { return [] }
+        dropTargeted?(true)
+        return .copy
+    }
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation { accepts(sender) ? .copy : [] }
+    override func draggingExited(_ sender: NSDraggingInfo?) { dropTargeted?(false) }
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool { accepts(sender) }
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        defer { dropTargeted?(false) }
+        let accepted = dropPerformed?(sender.draggingPasteboard) ?? false
+        dropLog.info("drop accepted=\(accepted)")
+        return accepted
+    }
+    override func wantsPeriodicDraggingUpdates() -> Bool { false }
+}
+
 @MainActor final class IslandPanelController {
     private let model: AppModel
     private let panel: IslandPanel
     private let hosting: IslandHostingView
+    private let dropView = IslandDropView()
+    private var dragMonitors: [Any] = []
+    /// Drag pasteboard generation at the last mouse down; a change while dragging means a
+    /// file or content drag is in flight, not a window move or a text selection.
+    private var pressGeneration = 0
     private var subscriptions = Set<AnyCancellable>()
     private var collapseTask: Task<Void, Never>?
     private var intentTask: Task<Void, Never>?
@@ -62,7 +112,10 @@ private final class IslandHostingView: NSHostingView<IslandView> {
         hosting.autoresizingMask = [.width, .height]
         hosting.wantsLayer = true
         hosting.layer?.masksToBounds = true
-        panel.contentView = hosting
+        dropView.autoresizingMask = [.width, .height]
+        hosting.frame = dropView.bounds
+        dropView.addSubview(hosting)
+        panel.contentView = dropView
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
@@ -75,6 +128,23 @@ private final class IslandHostingView: NSHostingView<IslandView> {
         hosting.pointerChanged = { [weak self] _ in self?.evaluatePointer() }
         hosting.pointerMoved = { [weak self] in self?.evaluatePointer() }
         hosting.islandContains = { [weak self] point in self.map { $0.region(at: point, margin: 0) != nil } ?? true }
+        dropView.islandContains = hosting.islandContains
+        dropView.dropTargeted = { [weak self] inside in
+            guard let self else { return }
+            if inside { self.model.beginDropApproach() }
+            else if !self.dropNear(NSEvent.mouseLocation) { self.model.endDropApproach() }
+        }
+        model.preferences.$shelfEnabled.receive(on: RunLoop.main).sink { [weak self] enabled in
+            guard let self else { return }
+            if enabled {
+                self.dropView.registerForDraggedTypes([.fileURL, .URL, .string, .png, .tiff] + NSFilePromiseReceiver.readableDraggedTypes.map { NSPasteboard.PasteboardType($0) })
+                self.dropView.dropPerformed = { [weak self] pasteboard in self?.model.receiveDrop(pasteboard) ?? false }
+            } else {
+                self.dropView.unregisterDraggedTypes()
+                self.dropView.dropPerformed = nil
+            }
+            self.syncDragMonitors(enabled)
+        }.store(in: &subscriptions)
         model.objectWillChange.merge(with: model.preferences.objectWillChange, geometry.$agentCardHeight.map { _ in () }.eraseToAnyPublisher())
             .receive(on: RunLoop.main).sink { [weak self] _ in self?.update() }.store(in: &subscriptions)
         NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)
@@ -87,7 +157,7 @@ private final class IslandHostingView: NSHostingView<IslandView> {
     /// AppKit then may never deliver the exit. While open, mouse moves anywhere re-evaluate the
     /// pointer; the monitors exist only while open, so the collapsed island stays idle.
     private func syncPointerMonitors() {
-        let open = model.expanded || model.agentCardOpen
+        let open = model.expanded || model.agentCardOpen || model.compactOpen
         guard open == pointerMonitors.isEmpty else { return }
         if !open {
             pointerMonitors.forEach(NSEvent.removeMonitor)
@@ -104,6 +174,50 @@ private final class IslandHostingView: NSHostingView<IslandView> {
         }) { pointerMonitors.append(local) }
     }
 
+    /// Opens the drop area while a drag is still on its way, so the target is already there
+    /// below the edge; a drag that reaches the top edge with nothing under it opens Mission Control.
+    /// The monitors only see events while a mouse button is down.
+    private func syncDragMonitors(_ enabled: Bool) {
+        guard enabled == dragMonitors.isEmpty else { return }
+        if !enabled {
+            dragMonitors.forEach(NSEvent.removeMonitor)
+            dragMonitors = []
+            return
+        }
+        if let monitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp], handler: { [weak self] event in
+            let type = event.type
+            MainActor.assumeIsolated { self?.trackDrag(type) }
+        }) { dragMonitors.append(monitor) }
+    }
+
+    private func trackDrag(_ type: NSEvent.EventType) {
+        let generation = NSPasteboard(name: .drag).changeCount
+        switch type {
+        case .leftMouseDown:
+            pressGeneration = generation
+        case .leftMouseDragged:
+            guard generation != pressGeneration else { return }
+            let near = dropNear(NSEvent.mouseLocation)
+            if near && !model.shelfDropTarget { model.beginDropApproach() }
+            else if !near && model.shelfDropTarget { model.endDropApproach() }
+        default:
+            // A drop clears the target itself; this covers drags released elsewhere.
+            if model.shelfDropTarget {
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(nanoseconds: 300_000_000)
+                    if self?.model.shelfDropTarget == true { self?.model.endDropApproach() }
+                }
+            }
+        }
+    }
+
+    /// Around the open panel, with a wider margin to open than to stay open.
+    private func dropNear(_ point: NSPoint) -> Bool {
+        let margin: CGFloat = model.shelfDropTarget ? 70 : 50
+        let depth = model.shelfDropTarget ? geometry.expandedHeight + margin : 180
+        return abs(point.x - centerX) <= geometry.expandedWidth / 2 + margin && screenTop - point.y <= depth
+    }
+
     func showExpanded() { model.expanded = true; update(); panel.orderFrontRegardless() }
 
     /// Inclusive bounds plus a margin: a pointer pinned to the top edge sits on the frame's
@@ -115,19 +229,24 @@ private final class IslandHostingView: NSHostingView<IslandView> {
     /// One place decides what the pointer means: the island expands, the bubble (or an island
     /// that only holds an assistant request) opens the mini chat, and leaving everything closes both.
     private func evaluatePointer() {
+        // While a drag is near, the drop area stays open whatever the pointer does.
+        if model.shelfDropTarget { cancelCollapse(); intentTask?.cancel(); intentTask = nil; return }
         switch region(at: NSEvent.mouseLocation) {
         case .bubble, .card:
             cancelCollapse()
             if !model.agentCardOpen { scheduleIntent(.card) }
         case .island:
             cancelCollapse()
-            if model.agentCardOpen || model.expanded { return }
+            if model.agentCardOpen || model.expanded || model.compactOpen { return }
             if model.agentInIsland { scheduleIntent(.card) }
-            else if model.preferences.expandOnHover { scheduleIntent(.island) }
+            // The compact hover needs an activity to show; an idle island waits for a click.
+            else if model.preferences.expandOnHover && (!model.preferences.compactHover || model.compactPanel != nil) {
+                scheduleIntent(.island)
+            }
         case nil:
             intentTask?.cancel()
             intentTask = nil
-            if collapseTask == nil && (model.expanded || model.agentCardOpen) { scheduleCollapse() }
+            if collapseTask == nil && (model.expanded || model.agentCardOpen || model.compactOpen) { scheduleCollapse() }
         }
     }
 
@@ -146,7 +265,9 @@ private final class IslandHostingView: NSHostingView<IslandView> {
             guard let self else { return }
             self.intentTask = nil
             guard self.region(at: NSEvent.mouseLocation) != nil else { return }
-            if target == .island { self.model.expanded = true } else { self.model.openAgentCard() }
+            if target == .card { self.model.openAgentCard() }
+            else if self.model.preferences.compactHover { self.model.compactOpen = self.model.compactPanel != nil }
+            else { self.model.expanded = true }
         }
     }
 
@@ -155,9 +276,10 @@ private final class IslandHostingView: NSHostingView<IslandView> {
             do { try await Task.sleep(nanoseconds: 250_000_000) } catch { return }
             guard let self else { return }
             self.collapseTask = nil
-            guard self.region(at: NSEvent.mouseLocation) == nil else { return }
+            guard self.region(at: NSEvent.mouseLocation) == nil, !self.model.shelfDropTarget else { return }
             // A custom Keep Awake duration being typed keeps the island open, like a mini chat draft.
             if !self.model.keepAwakeEditing { self.model.expanded = false }
+            self.model.compactOpen = false
             self.model.closeAgentCard()
         }
     }
@@ -180,7 +302,10 @@ private final class IslandHostingView: NSHostingView<IslandView> {
         let expandedSize = layout.size(active: true, expanded: true)
         if geometry.expandedWidth != expandedSize.width { geometry.expandedWidth = expandedSize.width }
         if geometry.expandedHeight != expandedSize.height { geometry.expandedHeight = expandedSize.height }
-        let size = layout.outerSize(active: model.active, expanded: model.expanded, activityCount: model.compactIsWide ? 2 : 1)
+        let compactWidth = layout.size(active: true, expanded: false, compact: true).width
+        if geometry.compactWidth != compactWidth { geometry.compactWidth = compactWidth }
+        let size = layout.outerSize(active: model.active, expanded: model.expanded, activityCount: model.compactIsWide ? 2 : 1,
+                                    compact: model.compactShown)
         let bubble = model.agentInBubble ? min(34, height - 2) : 0
         let card = model.agentCardOpen ? IslandSize(width: IslandGeometry.cardWidth, height: geometry.agentCardHeight) : nil
         let composition = IslandComposition(island: size, notchHeight: height, bubbleSize: bubble, card: card)
@@ -188,8 +313,12 @@ private final class IslandHostingView: NSHostingView<IslandView> {
         self.centerX = centerX
         screenTop = screen.frame.maxY
         if geometry.composition != composition { geometry.composition = composition }
+        // A pointer pinned to the top edge reports y == maxY, outside a frame ending there. With the
+        // extra point it stays over the island, so a drag at the edge reaches the shelf instead of
+        // falling through to Mission Control.
+        let edge = IslandGeometry.edgeOverlap
         let frame = NSRect(x: centerX - composition.halfWidth, y: screen.frame.maxY - composition.height,
-                           width: 2 * composition.halfWidth, height: composition.height)
+                           width: 2 * composition.halfWidth, height: composition.height + edge)
         let shape = CGSize(width: size.width, height: size.height)
         guard frame != targetFrame || shape != targetShape else { return }
         targetShape = shape
@@ -215,7 +344,7 @@ private final class IslandHostingView: NSHostingView<IslandView> {
         // stretched by a window animation. Once a shrink settles, the window follows the shape.
         let current = panel.frame
         let unionWidth = max(current.width, frame.width), unionHeight = max(current.height, frame.height)
-        let union = NSRect(x: centerX - unionWidth / 2, y: screen.frame.maxY - unionHeight, width: unionWidth, height: unionHeight)
+        let union = NSRect(x: centerX - unionWidth / 2, y: screen.frame.maxY + edge - unionHeight, width: unionWidth, height: unionHeight)
         if union != current { panel.setFrame(union, display: false, animate: false) }
         if expansionChanged {
             geometry.shapeAnimation = model.expanded
@@ -247,11 +376,15 @@ private final class IslandHostingView: NSHostingView<IslandView> {
     @Published var notchHeight: CGFloat = 32
     @Published var expandedWidth: CGFloat = 460
     @Published var expandedHeight: CGFloat = 128
+    /// Inner width of the compact hover; its content keeps this width while the shape grows.
+    @Published var compactWidth: CGFloat = 480
     @Published var expandedContentVisible = false
     /// Outer size of the visible island, shoulders included; animated by the view.
     @Published var shapeSize = CGSize(width: 204, height: 32)
     var shapeAnimation: Animation?
     static let cardWidth = 420.0
+    /// Points of window above the screen's top edge.
+    static let edgeOverlap: CGFloat = 1
     /// Bubble and mini chat placement around the island.
     @Published var composition = IslandComposition(island: IslandSize(width: 204, height: 32), notchHeight: 32)
     /// Measured by the mini chat; the window grows to fit it.

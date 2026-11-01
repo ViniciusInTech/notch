@@ -6,10 +6,15 @@ private let timerTint = Color(red: 1, green: 0.62, blue: 0.04)
 private let attentionTint = Color(red: 1, green: 0.84, blue: 0.04)
 private let doneTint = Color(red: 0.3, green: 0.85, blue: 0.45)
 private let awakeTint = Color(red: 0.37, green: 0.83, blue: 0.77)
+private let meetingTint = Color(red: 0.39, green: 0.82, blue: 1)
+private let joinTint = Color(red: 0.04, green: 0.52, blue: 1)
+private let shelfTint = Color(red: 0.75, green: 0.61, blue: 1)
+private let lowTint = Color(red: 1, green: 0.41, blue: 0.38)
 
 /// What each side of the collapsed island shows; changing it swaps the view with a scale and blur transition.
 private enum CompactSlot: Hashable {
     case artwork, waves, ring, time, music, timer, check, completionText, warning, authorize, agent, agentLabel, awake, awakeTime
+    case meeting, meetingTime, call, callLabel, shelf, shelfCount, notice, noticeLabel
 }
 
 struct IslandView: View {
@@ -30,6 +35,8 @@ struct IslandView: View {
         }
         .animation(reduce ? .easeOut(duration: 0.15) : .spring(response: 0.36, dampingFraction: 0.78), value: model.agentInBubble)
         .animation(reduce ? .easeOut(duration: 0.15) : .spring(response: 0.34, dampingFraction: 0.82), value: model.agentCardOpen)
+        // The window reaches past the screen's top edge; drawing starts at the screen edge.
+        .padding(.top, IslandGeometry.edgeOverlap)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .foregroundStyle(.white)
         .preferredColorScheme(.dark)
@@ -45,12 +52,26 @@ struct IslandView: View {
             AgentBubble(event: event, size: size, reduce: reduce, progress: model.agentProgress,
                         queued: model.agentEvents.count > 1, framed: true)
                 .frame(width: size, height: size)
+                .overlay(alignment: .topLeading) {
+                    if model.inCall && preferences.callAdjust { mutedGlyph(size: size * 0.42) }
+                }
                 .contentShape(Circle())
                 .onTapGesture { model.openAgentCard() }
                 .offset(x: geometry.shapeSize.width / 2 + IslandComposition.bubbleGap + size / 2, y: layout.bubbleMinY)
                 .animation(geometry.shapeAnimation, value: geometry.shapeSize)
                 .transition(reduce ? .opacity : .scale(scale: 0.4).combined(with: .opacity))
         }
+    }
+
+    /// Marks a notification that arrived silently during a call.
+    private func mutedGlyph(size: CGFloat) -> some View {
+        Image(systemName: "bell.slash.fill")
+            .font(.system(size: size * 0.5, weight: .bold))
+            .foregroundStyle(.white.opacity(0.75))
+            .frame(width: size, height: size)
+            .background(Circle().fill(.black))
+            .offset(x: -size * 0.15, y: -size * 0.1)
+            .accessibilityLabel("Silenciado durante a chamada")
     }
 
     @ViewBuilder private var agentCard: some View {
@@ -107,14 +128,22 @@ struct IslandView: View {
             .padding(.horizontal, 14)
             .frame(width: geometry.expandedWidth)
             .reveal(geometry.expandedContentVisible, order: 0, reduce: reduce)
+        } else if model.compactShown, let panel = model.compactPanel {
+            CompactBand(panel: panel, model: model, preferences: preferences, artwork: artwork,
+                        notchWidth: geometry.notchWidth, reduce: reduce)
+                .frame(width: geometry.compactWidth)
+                .id(panel)
+                .transition(reduce ? .opacity : AnyTransition(.blurReplace))
         } else {
             HStack(spacing: 0) {
                 ear(leftSlot, cup: cupBadge == .left)
                 Color.clear.frame(width: geometry.notchWidth)
-                ear(rightSlot, cup: cupBadge == .right)
+                ear(rightSlot, cup: cupBadge == .right, meeting: meetingBadge, shelf: shelfBadge)
             }
             .animation(reduce ? nil : .spring(response: 0.38, dampingFraction: 0.72), value: [leftSlot, rightSlot])
             .animation(reduce ? nil : .spring(response: 0.38, dampingFraction: 0.72), value: cupBadge)
+            .animation(reduce ? nil : .spring(response: 0.38, dampingFraction: 0.72), value: meetingBadge)
+            .animation(reduce ? nil : .spring(response: 0.38, dampingFraction: 0.72), value: shelfBadge)
             .accessibilityElement(children: .combine)
         }
     }
@@ -122,10 +151,14 @@ struct IslandView: View {
     private var leftSlot: CompactSlot? {
         guard model.active else { return nil }
         if model.agentInIsland { return .agent }
+        if model.callNoticeVisible { return .call }
+        if model.notice != nil { return .notice }
         if model.showsAttention { return .warning }
         if model.completionVisible { return .check }
         let items = model.activityOrder.items
+        if items.isEmpty && model.meeting != nil { return .meeting }
         if items.isEmpty && model.keepAwakeVisible { return .awake }
+        if items.isEmpty && model.shelfVisible && model.media?.isPlaying != true { return .shelf }
         if items.count == 2 { return items[0] == .music ? .music : .timer }
         return model.countdown.isActive ? .ring : .artwork
     }
@@ -133,10 +166,14 @@ struct IslandView: View {
     private var rightSlot: CompactSlot? {
         guard model.active else { return nil }
         if model.agentInIsland { return .agentLabel }
+        if model.callNoticeVisible { return .callLabel }
+        if model.notice != nil { return .noticeLabel }
         if model.showsAttention { return .authorize }
         if model.completionVisible { return .completionText }
         let items = model.activityOrder.items
+        if items.isEmpty && model.meeting != nil { return .meetingTime }
         if items.isEmpty && model.keepAwakeVisible { return .awakeTime }
+        if items.isEmpty && model.shelfVisible && model.media?.isPlaying != true { return .shelfCount }
         if items.count == 2 { return items[1] == .music ? .music : .timer }
         return model.countdown.isActive ? .time : .waves
     }
@@ -147,11 +184,25 @@ struct IslandView: View {
     /// next to the waves or the time.
     private var cupBadge: EarSide? {
         guard model.keepAwakeVisible, !model.completionVisible, !model.showsAttention, !model.agentInIsland,
-              !model.activityOrder.items.isEmpty else { return nil }
+              !model.callNoticeVisible, model.notice == nil,
+              !(model.activityOrder.items.isEmpty && model.meeting == nil) else { return nil }
         return .right
     }
 
-    private func ear(_ slot: CompactSlot?, cup: Bool) -> some View {
+    /// The shelf beside another activity: a small tray with the count on the right ear.
+    private var shelfBadge: Bool {
+        guard model.shelfVisible, !model.completionVisible, !model.showsAttention, !model.agentInIsland,
+              !model.callNoticeVisible, model.notice == nil else { return false }
+        return !model.activityOrder.items.isEmpty || model.meeting != nil || model.keepAwakeVisible
+    }
+
+    /// The meeting beside music or a timer: a small calendar with the minutes left, like the cup.
+    private var meetingBadge: Bool {
+        model.meeting != nil && !model.activityOrder.items.isEmpty && !model.completionVisible
+            && !model.showsAttention && !model.agentInIsland && !model.callNoticeVisible && model.notice == nil
+    }
+
+    private func ear(_ slot: CompactSlot?, cup: Bool, meeting: Bool = false, shelf: Bool = false) -> some View {
         HStack(spacing: 6) {
             if cup && slot != nil && cupBadge == .left { cupGlyph }
             ZStack {
@@ -162,8 +213,34 @@ struct IslandView: View {
                 }
             }
             if cup && slot != nil && cupBadge == .right { cupGlyph }
+            if meeting && slot != nil { meetingGlyph }
+            if shelf && slot != nil {
+                HStack(spacing: 2) {
+                    Image(systemName: "tray.full.fill").font(.system(size: 9.5, weight: .semibold))
+                    Text("\(model.shelf.items.count)").font(.system(size: 10, weight: .bold)).monospacedDigit()
+                }
+                .foregroundStyle(shelfTint)
+                .transition(reduce ? .opacity : .scale(scale: 0.5).combined(with: .opacity))
+                .accessibilityLabel("\(model.shelf.items.count) itens na bandeja")
+            }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder private var meetingGlyph: some View {
+        if let meeting = model.meeting {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                HStack(spacing: 2) {
+                    Image(systemName: "calendar").font(.system(size: 9.5, weight: .semibold))
+                    if meeting.phase == .soon {
+                        Text("\(meeting.minutesLeft(at: context.date))").font(.system(size: 10, weight: .bold)).monospacedDigit()
+                    }
+                }
+                .foregroundStyle(meeting.phase == .now ? timerTint : meetingTint)
+            }
+            .transition(reduce ? .opacity : .scale(scale: 0.5).combined(with: .opacity))
+            .accessibilityLabel(meeting.phase == .now ? "\(meeting.meeting.title) agora" : "\(meeting.meeting.title) em breve")
+        }
     }
 
     private var cupGlyph: some View {
@@ -222,6 +299,47 @@ struct IslandView: View {
                 }
             }
             .accessibilityLabel("Tempo acordado restante")
+        case .meeting:
+            if let meeting = model.meeting {
+                HStack(spacing: 6) {
+                    if meeting.phase == .now { Circle().fill(timerTint).frame(width: 6, height: 6) }
+                    else { Image(systemName: "calendar").font(.system(size: 12, weight: .semibold)).foregroundStyle(meetingTint) }
+                    Text(meeting.meeting.title).font(.system(size: 11.5, weight: .semibold)).lineLimit(1)
+                }
+                .padding(.leading, 4)
+            }
+        case .meetingTime:
+            if let meeting = model.meeting {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    Text(meeting.phase == .now ? "agora" : "em \(meeting.minutesLeft(at: context.date)) min")
+                        .font(.system(size: 11.5, weight: .semibold)).monospacedDigit()
+                        .foregroundStyle(meeting.phase == .now ? timerTint : meetingTint)
+                        .lineLimit(1)
+                }
+            }
+        case .call:
+            HStack(spacing: 4) {
+                Image(systemName: "video.fill").font(.system(size: 10, weight: .semibold)).foregroundStyle(doneTint)
+                Text("Em chamada").font(.system(size: 11.5, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.75)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        case .callLabel:
+            HStack(spacing: 4) {
+                Image(systemName: preferences.callAlertMode == .banner ? "speaker.slash.fill" : "bell.slash.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                Text(preferences.callAlertMode.label).font(.system(size: 11.5, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8)
+            }
+            .foregroundStyle(.white.opacity(0.7))
+        case .shelf:
+            Image(systemName: "tray.full.fill").font(.system(size: 13, weight: .semibold)).foregroundStyle(shelfTint)
+                .accessibilityLabel("Bandeja")
+        case .shelfCount:
+            Text("\(model.shelf.items.count)").font(.system(size: 12, weight: .semibold)).monospacedDigit().foregroundStyle(shelfTint)
+                .accessibilityLabel("\(model.shelf.items.count) itens")
+        case .notice:
+            if let notice = model.notice { NoticeLeading(notice: notice, shelf: model.shelf) }
+        case .noticeLabel:
+            if let notice = model.notice { NoticeTrailing(notice: notice) }
         }
     }
 
@@ -250,6 +368,7 @@ struct IslandView: View {
     private var tabs: [IslandPage] {
         let started = model.activityOrder.items.map { $0 == .music ? IslandPage.music : .timer }
         return started + [IslandPage.music, .timer].filter { !started.contains($0) } + [.keepAwake]
+            + (preferences.shelfEnabled ? [.shelf] : [])
     }
 
     private var tabSwitcher: some View {
@@ -270,6 +389,7 @@ struct IslandView: View {
                             if activity == .music && model.media?.isPlaying == true { activityDot(.green) }
                             else if activity == .timer && model.countdown.isActive { activityDot(timerTint) }
                             else if activity == .keepAwake && model.keepAwake != nil { activityDot(awakeTint) }
+                            else if activity == .shelf && !model.shelf.items.isEmpty { activityDot(shelfTint) }
                         }
                         .contentShape(Capsule())
                 }
@@ -321,7 +441,11 @@ struct IslandView: View {
     @ViewBuilder private var expandedContent: some View {
         let visible = geometry.expandedContentVisible
         ZStack(alignment: .top) {
-            if model.page == .timer {
+            if model.shelfDropTarget {
+                DropPanel(count: model.shelf.items.count).transition(panelTransition)
+            } else if model.page == .shelf {
+                ShelfPanel(model: model, shelf: model.shelf, visible: visible, reduce: reduce).transition(panelTransition)
+            } else if model.page == .timer {
                 PomodoroPanel(model: model, preferences: preferences, visible: visible, reduce: reduce).transition(panelTransition)
             } else if model.page == .keepAwake {
                 KeepAwakePanel(model: model, preferences: preferences, visible: visible, reduce: reduce).transition(panelTransition)
@@ -821,11 +945,17 @@ extension KeepAwakeUnit {
 
 private extension IslandPage {
     var symbol: String {
-        switch self { case .music: return "music.note"; case .timer: return "timer"; case .keepAwake: return "cup.and.saucer.fill" }
+        switch self {
+        case .music: return "music.note"; case .timer: return "timer"; case .keepAwake: return "cup.and.saucer.fill"
+        case .shelf: return "tray.full.fill"
+        }
     }
 
     var title: String {
-        switch self { case .music: return "Música"; case .timer: return "Pomodoro"; case .keepAwake: return "Manter acordado" }
+        switch self {
+        case .music: return "Música"; case .timer: return "Pomodoro"; case .keepAwake: return "Manter acordado"
+        case .shelf: return "Bandeja"
+        }
     }
 }
 
@@ -1268,11 +1398,13 @@ private struct PressableStyle: ButtonStyle {
 private struct PillButtonStyle: ButtonStyle {
     var fill: Color?
     var height: CGFloat = 30
+    /// Dark text on light fills; a saturated fill takes white text instead.
+    var dark = true
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 11.5, weight: fill == nil ? .semibold : .bold))
-            .foregroundStyle(fill == nil ? Color.white.opacity(0.85) : Color.black.opacity(0.85))
+            .foregroundStyle(fill == nil || !dark ? Color.white.opacity(fill == nil ? 0.85 : 1) : Color.black.opacity(0.85))
             .padding(.horizontal, 12)
             .frame(height: height)
             .background(fill ?? Color.white.opacity(0.1), in: Capsule())
@@ -1342,4 +1474,470 @@ func time(_ seconds: TimeInterval) -> String {
 
 @MainActor private final class HoverState: ObservableObject {
     @Published var inside = false
+}
+
+extension CallAlertMode {
+    var label: String {
+        switch self { case .silent: return "Silencioso"; case .banner: return "Sem som"; case .pause: return "Pausados" }
+    }
+}
+
+// MARK: - Compact hover
+
+/// The island widened at the notch height: one activity on the left, its controls on the right.
+private struct CompactBand: View {
+    let panel: CompactPanel
+    @ObservedObject var model: AppModel
+    @ObservedObject var preferences: Preferences
+    @ObservedObject var artwork: ArtworkStore
+    let notchWidth: CGFloat
+    let reduce: Bool
+
+    var body: some View {
+        HStack(spacing: 0) {
+            leading.frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 12)
+            Color.clear.frame(width: notchWidth)
+            trailing.frame(maxWidth: .infinity, alignment: .trailing).padding(.trailing, 8)
+        }
+    }
+
+    @ViewBuilder private var leading: some View {
+        switch panel {
+        case .music:
+            if let media = model.media {
+                HStack(spacing: 8) {
+                    ArtworkView(artwork: artwork, size: 20)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(media.title).font(.system(size: 11.5, weight: .semibold)).lineLimit(1)
+                        TimelineView(.periodic(from: .now, by: 1)) { context in
+                            Text(media.canSeek ? "\(media.artist) · \(time(media.position(at: context.date))) / \(time(media.duration))" : media.artist)
+                                .monospacedDigit()
+                        }
+                        .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+            }
+        case .timer:
+            HStack(spacing: 7) {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    HStack(spacing: 7) {
+                        ProgressRing(progress: model.timerProgress(at: context.date), lineWidth: 2.4, reduce: reduce)
+                            .frame(width: 14, height: 14)
+                        CountingText(text: time(model.countdown.remaining(at: context.date)), reduce: reduce)
+                            .font(.system(size: 13, weight: .semibold)).foregroundStyle(timerTint)
+                    }
+                }
+                Text(timerSubtitle).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+            }
+            .accessibilityElement(children: .combine)
+        case .keepAwake:
+            HStack(spacing: 7) {
+                Image(systemName: "cup.and.saucer.fill").font(.system(size: 12, weight: .semibold)).foregroundStyle(awakeTint)
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    if let remaining = model.keepAwake?.remaining(at: context.date) {
+                        CountingText(text: KeepAwakeFormat.compact(remaining), reduce: reduce)
+                    } else {
+                        Text("Sempre")
+                    }
+                }
+                .font(.system(size: 13, weight: .semibold)).foregroundStyle(awakeTint)
+            }
+            .accessibilityElement(children: .combine)
+        case .drop:
+            dropZone {
+                Image(systemName: "tray.and.arrow.down.fill").font(.system(size: 11, weight: .semibold))
+                Text("Solte para guardar")
+            }
+        case .download:
+            if let url = model.recentDownload {
+                HStack(spacing: 8) {
+                    ShelfIcon(path: url.path, shelf: model.shelf, size: 22)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(url.lastPathComponent).font(.system(size: 11.5, weight: .semibold)).lineLimit(1).truncationMode(.middle)
+                        Text(downloadSubtitle(url)).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+            }
+        case .shelf:
+            HStack(spacing: 7) {
+                ForEach(model.shelf.items.prefix(4)) { item in ShelfThumb(item: item, shelf: model.shelf, size: 22) }
+            }
+        case .meeting:
+            if let meeting = model.meeting {
+                HStack(spacing: 8) {
+                    if meeting.phase == .now { Circle().fill(timerTint).frame(width: 7, height: 7) }
+                    else { Image(systemName: "calendar").font(.system(size: 13, weight: .semibold)).foregroundStyle(meetingTint) }
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(meeting.meeting.title).font(.system(size: 11.5, weight: .semibold)).lineLimit(1)
+                        Text(meetingSubtitle(meeting.meeting)).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var trailing: some View {
+        HStack(spacing: 2) {
+            trailingControls
+            if panel != .drop && model.compactPanels.count > 1 {
+                Button { model.cycleCompactPanel() } label: {
+                    Image(systemName: "arrow.left.arrow.right").font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.55)).frame(width: 20, height: 26)
+                }
+                .buttonStyle(.plain)
+                .help("Próxima atividade")
+                .accessibilityLabel("Mostrar a próxima atividade")
+            }
+        }
+    }
+
+    @ViewBuilder private var trailingControls: some View {
+        switch panel {
+        case .drop:
+            dropZone {
+                Text(model.shelf.items.isEmpty ? "Bandeja vazia" : "Bandeja · \(model.shelf.items.count) \(model.shelf.items.count == 1 ? "item" : "itens")")
+            }
+        case .download:
+            HStack(spacing: 2) {
+                Button("Abrir") { model.openRecentDownload() }.buttonStyle(PillButtonStyle(height: 22))
+                iconButton("magnifyingglass", size: 11, label: "Mostrar no Finder") { model.revealRecentDownload() }
+                iconButton("tray.and.arrow.down.fill", size: 11, label: "Guardar na bandeja") { model.shelveRecentDownload() }
+                    .foregroundStyle(shelfTint)
+            }
+        case .shelf:
+            let items = model.shelf.items
+            HStack(spacing: 6) {
+                ForEach(items.dropFirst(4).prefix(2)) { item in ShelfThumb(item: item, shelf: model.shelf, size: 22) }
+                if items.count > 6 { Text("+\(items.count - 6)").font(.system(size: 11, weight: .bold)).foregroundStyle(.white.opacity(0.8)) }
+                iconButton("xmark", size: 10, label: "Limpar bandeja") { model.shelf.clear() }
+            }
+        case .music:
+            if let media = model.media {
+                HStack(spacing: 2) {
+                    iconButton("backward.end.fill", size: 12, label: "Música anterior") { model.perform(.previous) }
+                        .disabled(!media.canSkip)
+                    iconButton(media.isPlaying ? "pause.fill" : "play.fill", size: 14, label: media.isPlaying ? "Pausar" : "Reproduzir") {
+                        model.perform(.togglePlayback)
+                    }
+                    iconButton("forward.end.fill", size: 12, label: "Próxima música") { model.perform(.next) }
+                        .disabled(!media.canSkip)
+                }
+                .disabled(model.commandBusy)
+            }
+        case .timer:
+            HStack(spacing: 2) {
+                iconButton(model.countdown.isPaused ? "play.fill" : "pause.fill", size: 13,
+                           label: model.countdown.isPaused ? "Continuar" : "Pausar") { model.toggleTimer() }
+                if model.timerIsPomodoro {
+                    iconButton("forward.end.fill", size: 12, label: "Pular etapa") { model.skipPomodoroPhase() }
+                }
+                iconButton("xmark", size: 11, label: "Encerrar") { model.cancelTimer() }
+            }
+        case .keepAwake:
+            HStack(spacing: 4) {
+                if model.keepAwake?.isIndefinite == false {
+                    Button("+1 h") { model.extendKeepAwake(minutes: 60) }
+                        .buttonStyle(PillButtonStyle(height: 22))
+                        .accessibilityLabel("Mais uma hora acordado")
+                }
+                iconButton("power", size: 12, label: "Desligar") { model.stopKeepAwake() }
+            }
+        case .meeting:
+            HStack(spacing: 4) {
+                if model.meeting?.meeting.link != nil {
+                    Button { model.joinMeeting() } label: {
+                        Label("Entrar", systemImage: "video.fill").labelStyle(.titleAndIcon)
+                    }
+                    .buttonStyle(PillButtonStyle(fill: joinTint, height: 22, dark: false))
+                }
+                iconButton("xmark", size: 11, label: "Dispensar") { model.dismissMeeting() }
+            }
+        }
+    }
+
+    private func dropZone<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        HStack(spacing: 6, content: content)
+            .font(.system(size: 11.5, weight: .semibold))
+            .foregroundStyle(.white.opacity(0.9))
+            .frame(maxWidth: .infinity).frame(height: 24)
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.4), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3])))
+            .padding(.trailing, 4)
+    }
+
+    private func downloadSubtitle(_ url: URL) -> String {
+        let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+        return size.map { "\(ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file)) · Downloads" } ?? "Downloads"
+    }
+
+    private func iconButton(_ symbol: String, size: CGFloat, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: size, weight: .semibold)).frame(width: 26, height: 26)
+        }
+        .buttonStyle(IconButtonStyle())
+        .help(label)
+        .accessibilityLabel(label)
+    }
+
+    private var timerSubtitle: String {
+        if model.countdown.isPaused { return "Pausado" }
+        guard model.timerIsPomodoro else { return "Timer" }
+        let settings = preferences.pomodoro
+        switch model.pomodoro.phase {
+        case .work: return "Foco · \(min(model.pomodoro.completedSessions + 1, settings.sessions)) de \(settings.sessions)"
+        case .shortBreak: return "Pausa"
+        case .longBreak: return "Pausa longa"
+        }
+    }
+
+    private func meetingSubtitle(_ meeting: Meeting) -> String {
+        let hours = "\(meeting.start.formatted(date: .omitted, time: .shortened))–\(meeting.end.formatted(date: .omitted, time: .shortened))"
+        return meeting.link == nil ? hours : hours + " · vídeo"
+    }
+}
+
+// MARK: - Shelf
+
+/// A file's preview, from Quick Look once ready; the type's icon until then.
+private struct ShelfIcon: View {
+    let path: String
+    @ObservedObject var shelf: ShelfStore
+    let size: CGFloat
+
+    var body: some View {
+        Image(nsImage: shelf.thumbnail(for: ShelfItem(path: path)))
+            .resizable().aspectRatio(contentMode: .fit)
+            .frame(width: size, height: size)
+            .clipShape(RoundedRectangle(cornerRadius: size * 0.16))
+    }
+}
+
+/// A shelf item that can be dragged out, clicked to open or right-clicked for more.
+private struct ShelfThumb: View {
+    let item: ShelfItem
+    @ObservedObject var shelf: ShelfStore
+    let size: CGFloat
+
+    var body: some View {
+        ShelfIcon(path: item.path, shelf: shelf, size: size)
+            .overlay(ShelfDragHandle(item: item, shelf: shelf))
+            .help(item.name)
+            .accessibilityLabel(item.name)
+    }
+}
+
+private struct ShelfDragHandle: NSViewRepresentable {
+    let item: ShelfItem
+    let shelf: ShelfStore
+
+    func makeNSView(context: Context) -> HandleView { HandleView() }
+
+    func updateNSView(_ view: HandleView, context: Context) {
+        view.item = item
+        view.shelf = shelf
+    }
+
+    final class HandleView: NSView {
+        var item: ShelfItem?
+        weak var shelf: ShelfStore?
+        private var pressed: NSPoint?
+        private var dragging = false
+
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        override func mouseDown(with event: NSEvent) {
+            pressed = event.locationInWindow
+            dragging = false
+        }
+
+        override func mouseDragged(with event: NSEvent) {
+            guard !dragging, let pressed, let item else { return }
+            let point = event.locationInWindow
+            guard hypot(point.x - pressed.x, point.y - pressed.y) > 3 else { return }
+            dragging = true
+            ShelfDragCoordinator.shared.begin(item, from: self, event: event)
+        }
+
+        override func mouseUp(with event: NSEvent) {
+            defer { pressed = nil }
+            guard !dragging, let item, let url = shelf?.resolvedURL(item) else { return }
+            NSWorkspace.shared.open(url)
+        }
+
+        override func menu(for event: NSEvent) -> NSMenu? {
+            let menu = NSMenu()
+            menu.addItem(withTitle: "Abrir", action: #selector(open), keyEquivalent: "").target = self
+            menu.addItem(withTitle: "Mostrar no Finder", action: #selector(reveal), keyEquivalent: "").target = self
+            menu.addItem(.separator())
+            menu.addItem(withTitle: "Remover da bandeja", action: #selector(remove), keyEquivalent: "").target = self
+            return menu
+        }
+
+        @objc private func open() {
+            if let item, let url = shelf?.resolvedURL(item) { NSWorkspace.shared.open(url) }
+        }
+
+        @objc private func reveal() {
+            if let item, let url = shelf?.resolvedURL(item) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+        }
+
+        @objc private func remove() {
+            if let item { shelf?.remove(item.id) }
+        }
+    }
+}
+
+/// The shelf tab of the open island: items in a row, then share and clear.
+private struct ShelfPanel: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var shelf: ShelfStore
+    let visible: Bool
+    let reduce: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if shelf.items.isEmpty {
+                Image(systemName: "tray").font(.system(size: 28, weight: .light)).foregroundStyle(shelfTint)
+                    .frame(width: 50, height: 50)
+                    .reveal(visible, order: 1, reduce: reduce)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Bandeja vazia").font(.system(size: 13.5, weight: .semibold))
+                    Text("Arraste arquivos até o notch para guardar e puxe de volta onde quiser.")
+                        .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2)
+                }
+                .reveal(visible, order: 2, reduce: reduce)
+                Spacer(minLength: 0)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 4) {
+                        ForEach(shelf.items) { item in
+                            VStack(spacing: 4) {
+                                ShelfThumb(item: item, shelf: shelf, size: 36)
+                                Text(item.name).font(.system(size: 9.5)).foregroundStyle(.secondary)
+                                    .lineLimit(1).truncationMode(.middle).frame(width: 58)
+                            }
+                            .frame(width: 60)
+                        }
+                    }
+                }
+                .reveal(visible, order: 1, reduce: reduce)
+                VStack(spacing: 6) {
+                    ShareLink(items: shelf.items.map(\.url)) {
+                        Label("Compartilhar", systemImage: "square.and.arrow.up").labelStyle(.titleAndIcon)
+                    }
+                    .buttonStyle(PillButtonStyle(height: 24))
+                    Button("Limpar") { shelf.clear() }.buttonStyle(PillButtonStyle(height: 24))
+                }
+                .fixedSize()
+                .reveal(visible, order: 2, reduce: reduce)
+            }
+        }
+        .frame(maxHeight: .infinity)
+    }
+}
+
+// MARK: - Notices
+
+private struct NoticeLeading: View {
+    let notice: IslandNotice
+    @ObservedObject var shelf: ShelfStore
+
+    var body: some View {
+        switch notice {
+        case .screenshot(let count, let path):
+            ZStack {
+                if count > 1 {
+                    ShelfIcon(path: path, shelf: shelf, size: 22).opacity(0.5).offset(x: 5, y: -2)
+                }
+                ShelfIcon(path: path, shelf: shelf, size: 22)
+            }
+            .accessibilityLabel("Captura de tela")
+        case .download(let path):
+            HStack(spacing: 6) {
+                ShelfIcon(path: path, shelf: shelf, size: 18)
+                Text((path as NSString).lastPathComponent).font(.system(size: 11.5, weight: .semibold))
+                    .lineLimit(1).truncationMode(.middle).frame(maxWidth: 74)
+            }
+        case .power(let event):
+            HStack(spacing: 4) {
+                switch event {
+                case .connected:
+                    Image(systemName: "bolt.fill").font(.system(size: 11, weight: .bold)).foregroundStyle(doneTint)
+                    Text("Carregando").foregroundStyle(doneTint)
+                case .charged:
+                    Image(systemName: "bolt.fill").font(.system(size: 11, weight: .bold)).foregroundStyle(doneTint)
+                    Text("Carregado").foregroundStyle(doneTint)
+                case .disconnected(_, let minutes):
+                    Text("Na bateria")
+                    if let minutes { Text("· \(minutes / 60)h\(String(format: "%02d", minutes % 60))").foregroundStyle(.secondary) }
+                case .low:
+                    Text("Bateria fraca").foregroundStyle(lowTint)
+                }
+            }
+            .font(.system(size: 11.5, weight: .semibold))
+            .lineLimit(1)
+        }
+    }
+}
+
+private struct NoticeTrailing: View {
+    let notice: IslandNotice
+
+    var body: some View {
+        switch notice {
+        case .screenshot(let count, _):
+            Text(count > 1 ? "\(count) prints" : "Na bandeja")
+                .font(.system(size: 11.5, weight: .semibold)).foregroundStyle(shelfTint).lineLimit(1)
+        case .download:
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.down.circle.fill").font(.system(size: 11, weight: .semibold))
+                Text("Baixado").font(.system(size: 11.5, weight: .semibold))
+            }
+            .foregroundStyle(doneTint)
+        case .power(let event):
+            let level = Self.level(event)
+            let tint: Color = { if case .low = event { return lowTint }; if case .disconnected = event { return .white }; return doneTint }()
+            HStack(spacing: 4) {
+                Text("\(level)%").font(.system(size: 11.5, weight: .semibold)).monospacedDigit()
+                Image(systemName: Self.symbol(level: level, charging: { if case .connected = event { return true }; return false }()))
+                    .font(.system(size: 13)).foregroundStyle(tint)
+            }
+            .foregroundStyle(tint == .white ? Color.white : tint)
+        }
+    }
+
+    private static func level(_ event: PowerEvent) -> Int {
+        switch event {
+        case .connected(let level), .disconnected(let level, _), .low(let level): return level
+        case .charged: return 100
+        }
+    }
+
+    private static func symbol(level: Int, charging: Bool) -> String {
+        if charging { return "battery.100percent.bolt" }
+        switch level {
+        case ..<13: return "battery.0percent"
+        case ..<38: return "battery.25percent"
+        case ..<63: return "battery.50percent"
+        case ..<88: return "battery.75percent"
+        default: return "battery.100percent"
+        }
+    }
+}
+
+/// Shown while a drag is near: the whole open area receives the drop, below the top edge.
+private struct DropPanel: View {
+    let count: Int
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Image(systemName: "tray.and.arrow.down.fill").font(.system(size: 20, weight: .semibold)).foregroundStyle(shelfTint)
+            Text("Solte para guardar na bandeja").font(.system(size: 13, weight: .semibold))
+            Text(count == 0 ? "Fica só a referência ao arquivo" : "\(count) \(count == 1 ? "item" : "itens") na bandeja")
+                .font(.system(size: 10.5)).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(RoundedRectangle(cornerRadius: 14).fill(shelfTint.opacity(0.08)))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(shelfTint.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, dash: [5, 4])))
+        .accessibilityElement(children: .combine)
+    }
 }

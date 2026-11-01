@@ -214,6 +214,112 @@ struct NotchCoreTests {
         #expect(AgentHook.event(agent: .cursor, payload: payload) == nil)
     }
 
+    @Test func testAgentAlertModeControlsSoundAndBanner() {
+        #expect(AgentAlertMode.sound.alert(for: .permission, includeCompletions: false) == .init(sound: true, banner: true))
+        #expect(AgentAlertMode.banner.alert(for: .question, includeCompletions: false) == .init(sound: false, banner: true))
+        #expect(AgentAlertMode.silent.alert(for: .permission, includeCompletions: true) == .init(sound: false, banner: false))
+        #expect(AgentAlertMode.sound.alert(for: .completion, includeCompletions: false) == .init(sound: false, banner: false))
+        #expect(AgentAlertMode.sound.alert(for: .completion, includeCompletions: true) == .init(sound: true, banner: true))
+    }
+
+    @Test func testCallModeOverridesAlertDuringCalls() {
+        #expect(CallAlertMode.silent.applied(to: .sound) == .silent)
+        #expect(CallAlertMode.banner.applied(to: .sound) == .banner)
+        #expect(CallAlertMode.banner.applied(to: .silent) == .silent)
+        #expect(CallAlertMode.pause.applied(to: .sound) == nil)
+    }
+
+    @Test func testCompactHoverOnlyGrowsSideways() {
+        let layout = IslandLayout(notchWidth: 180, notchHeight: 32, screenWidth: 1512)
+        let compact = layout.size(active: true, expanded: false, compact: true)
+        #expect(compact.width == 480)
+        #expect(compact.height == 32)
+        #expect(layout.size(active: true, expanded: true, compact: true).height == 128)
+        let small = IslandLayout(notchWidth: 180, notchHeight: 32, screenWidth: 320)
+        #expect(small.outerSize(active: true, expanded: false, compact: true).width <= 304)
+    }
+
+    @Test func testKeepAwakeExtendsDeadlineButNotIndefinitePeriods() throws {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let session = KeepAwakeSession(minutes: 30, at: now)
+        let later = session.extended(byMinutes: 60, at: now.addingTimeInterval(600))
+        #expect(later.start == now)
+        #expect(try #require(later.remaining(at: now.addingTimeInterval(600))) == 80 * 60)
+        #expect(later.minutes == 90)
+        let expired = session.extended(byMinutes: 60, at: now.addingTimeInterval(3600))
+        #expect(expired.remaining(at: now.addingTimeInterval(3600)) == 3600)
+        let always = KeepAwakeSession(minutes: 0, at: now)
+        #expect(always.extended(byMinutes: 60, at: now) == always)
+    }
+
+    @Test func testMeetingLinkAcceptsOnlyKnownHttpsServices() {
+        #expect(MeetingLink.find(in: [nil, "Sala 3", "Entrar: https://meet.google.com/abc-defg-hij"])?.host == "meet.google.com")
+        #expect(MeetingLink.find(in: ["https://empresa.zoom.us/j/123?pwd=x"])?.host == "empresa.zoom.us")
+        #expect(MeetingLink.find(in: ["meet.google.com/abc-defg-hij"])?.absoluteString == "https://meet.google.com/abc-defg-hij")
+        #expect(MeetingLink.find(in: ["http://meet.google.com/abc"])?.scheme == "https")
+        #expect(MeetingLink.find(in: ["https://example.com/zoom.us", "ftp://zoom.us/x"]) == nil)
+        #expect(MeetingLink.find(in: ["https://notzoom.us/j/1"]) == nil)
+    }
+
+    @Test func testMeetingScheduleShowsLeadThenNowWindow() throws {
+        let start = Date(timeIntervalSince1970: 2_000_000)
+        let link = URL(string: "https://meet.google.com/x")
+        let daily = Meeting(id: "a", title: "Daily", start: start, end: start.addingTimeInterval(900), link: link)
+        let plain = Meeting(id: "b", title: "Almoço", start: start.addingTimeInterval(-60), end: start.addingTimeInterval(3600))
+        let meetings = [daily, plain]
+        #expect(MeetingSchedule.alert(in: meetings, at: start.addingTimeInterval(-301), leadMinutes: 5, linkOnly: true) == nil)
+        let soon = try #require(MeetingSchedule.alert(in: meetings, at: start.addingTimeInterval(-290), leadMinutes: 5, linkOnly: true))
+        #expect(soon.phase == .soon)
+        #expect(soon.minutesLeft(at: start.addingTimeInterval(-290)) == 5)
+        #expect(MeetingSchedule.alert(in: meetings, at: start.addingTimeInterval(30), leadMinutes: 5, linkOnly: true)?.phase == .now)
+        #expect(MeetingSchedule.alert(in: meetings, at: start.addingTimeInterval(600), leadMinutes: 5, linkOnly: true) == nil)
+        #expect(MeetingSchedule.alert(in: meetings, at: start, leadMinutes: 5, linkOnly: false)?.meeting.id == "b")
+        #expect(MeetingSchedule.alert(in: meetings, at: start, leadMinutes: 5, linkOnly: true, dismissed: ["a"]) == nil)
+        #expect(MeetingSchedule.nextChange(in: meetings, after: start.addingTimeInterval(-3600), leadMinutes: 5, linkOnly: true)
+                == start.addingTimeInterval(-300))
+        #expect(MeetingSchedule.nextChange(in: meetings, after: start, leadMinutes: 5, linkOnly: true) == start.addingTimeInterval(600))
+    }
+
+    @Test func testShelfKeepsNewestFirstWithoutDuplicatesAndExpires() {
+        let now = Date(timeIntervalSince1970: 3_000_000)
+        var shelf = Shelf()
+        shelf.add(ShelfItem(path: "/a.pdf", addedAt: now.addingTimeInterval(-7200)))
+        shelf.add(ShelfItem(path: "/b.png", addedAt: now.addingTimeInterval(-60)))
+        shelf.add(ShelfItem(path: "/a.pdf", addedAt: now))
+        #expect(shelf.items.map(\.path) == ["/a.pdf", "/b.png"])
+        #expect(shelf.nextExpiry(hours: 1) == now.addingTimeInterval(3540))
+        #expect(shelf.removeExpired(at: now, hours: 0).isEmpty)
+        let expired = shelf.removeExpired(at: now.addingTimeInterval(3600), hours: 1)
+        #expect(expired.map(\.path) == ["/a.pdf", "/b.png"])
+        #expect(shelf.items.isEmpty)
+        for index in 0..<(Shelf.capacity + 2) { shelf.add(ShelfItem(path: "/\(index)", owned: true)) }
+        #expect(shelf.items.count == Shelf.capacity)
+        #expect(shelf.items.first?.path == "/\(Shelf.capacity + 1)")
+    }
+
+    @Test func testWatchedFilesSkipPartialDownloadsAndUnsafeNames() {
+        #expect(WatchedFile.isPartial("video.mp4.crdownload"))
+        #expect(WatchedFile.isPartial("arquivo.zip.download"))
+        #expect(WatchedFile.isPartial(".Screenshot 2026.png"))
+        #expect(!WatchedFile.isPartial("relatorio.pdf"))
+        #expect(WatchedFile.safeName("../etc/passwd", fallback: "x") == "-etc-passwd")
+        #expect(WatchedFile.safeName("  ", fallback: "Imagem") == "Imagem")
+    }
+
+    @Test func testPowerEventsReportPlugChargeAndLowBattery() {
+        let battery = PowerState(onAC: false, level: 82, minutesToEmpty: 372)
+        let plugged = PowerState(onAC: true, level: 82)
+        #expect(PowerEvents.event(from: nil, to: plugged, warnLow: true) == nil)
+        #expect(PowerEvents.event(from: battery, to: plugged, warnLow: true) == .connected(level: 82))
+        #expect(PowerEvents.event(from: plugged, to: battery, warnLow: true) == .disconnected(level: 82, minutesLeft: 372))
+        #expect(PowerEvents.event(from: plugged, to: PowerState(onAC: true, level: 100, charged: true), warnLow: true) == .charged)
+        let low = PowerState(onAC: false, level: 20)
+        #expect(PowerEvents.event(from: PowerState(onAC: false, level: 21), to: low, warnLow: true) == .low(level: 20))
+        #expect(PowerEvents.event(from: PowerState(onAC: false, level: 21), to: low, warnLow: false) == nil)
+        #expect(PowerEvents.event(from: low, to: PowerState(onAC: false, level: 19), warnLow: true) == nil)
+        #expect(PowerState(onAC: false, level: 50, minutesToEmpty: -1).minutesToEmpty == nil)
+    }
+
     @Test func testAgentCompletionsSkipLoopsAndAborts() throws {
         let stop = Data(#"{"hook_event_name":"Stop","cwd":"/tmp/app","last_assistant_message":"Pronto.\n\nTestes passam."}"#.utf8)
         #expect(AgentHook.event(agent: .claude, payload: stop)?.detail == "Pronto. Testes passam.")

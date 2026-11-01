@@ -99,9 +99,72 @@ própria altura e a janela acompanha. Aberto, congela o prazo do aviso visível;
 escolhas ou texto em andamento (`agentDraft`) o mantêm aberto. Perguntas
 (AskUserQuestion) voltam como `updatedInput` com `answers`; recusa pode levar
 mensagem. O hook de permissão espera até 1 h; o Notch decide antes pelo próprio
-prazo. Eventos são registrados em `Logger` (subsistema dev.vinicius.Notch,
+prazo. `AgentAlertMode` (núcleo) define o alerta de cada aviso novo: notificação do macOS com
+som, sem som, ou silencioso (só a ilha). Permissões e perguntas sempre seguem o modo;
+conclusões, só se “Alertar também nas conclusões” estiver ligado. O som é um
+NSSound do sistema escolhido pelo usuário (padrão Ping), no máximo um a cada 1,5 s; a
+notificação não leva som próprio, usa o id do aviso e é removida da Central quando o
+aviso é resolvido. Eventos são registrados em `Logger` (subsistema dev.vinicius.Notch,
 categoria agents). `AgentHookInstaller` edita os arquivos de hooks do usuário só
 por ação explícita.
+Chamadas: `CallMonitor` registra listeners de propriedade do HAL (CoreMediaIO
+`DeviceIsRunningSomewhere` nas câmeras e CoreAudio no microfone padrão, opcional) em
+fila própria, sem consulta periódica e sem acessar imagem ou áudio; só existe com os
+avisos e o ajuste ligados. Em chamada, `CallAlertMode` (núcleo) troca o alerta por
+silencioso ou notificação sem som, ou para o socket (pausar). A ilha mostra “Em chamada”
+por 4 s, a bolinha ganha um sino cortado e, ao fim, pedidos que chegaram durante a
+chamada tocam um único som se o modo normal tiver som.
+Próxima reunião: `CalendarService` (actor com EKEventStore) lê eventos com horário das
+próximas 12 h, sem dia inteiro, cancelados ou recusados, só após o usuário ligar a
+Agenda (acesso total ao Calendário, pedido nesse momento). `MeetingLink` aceita só HTTPS
+de serviços de vídeo conhecidos; `MeetingSchedule` mostra a reunião desde a antecedência
+escolhida até 10 min após o início (ou o fim) e calcula a próxima mudança: `AppModel`
+agenda uma única tarefa até ela, no máximo uma hora, e relê ao mudar o calendário
+(EKEventStoreChanged). Com a Agenda ligada e o acesso indeterminado (um app assinado ad hoc
+perde a permissão a cada build), o pedido é refeito uma vez por execução. Links sem esquema
+("meet.google.com/…") ou http de serviços conhecidos abrem em HTTPS. Os passos ficam em
+`Logger` (categoria meetings). Sozinha, a reunião ocupa as duas orelhas (título e “em N min” ou
+“agora”); com música ou timer vira um calendário pequeno com os minutos na orelha direita.
+Hover compacto (padrão): a ilha cresce só para os lados, `IslandLayout.compactWings`
+(300 pontos no total), na altura do notch, com uma atividade e seus controles: reunião,
+depois a atividade mais recente, Acordado ou música pausada. Sem atividade, o hover não
+faz nada e o clique abre o painel. A largura final é mantida e revelada pela forma, como
+no painel aberto. “Expandir para baixo” mantém o comportamento anterior.
+Bandeja: `ShelfStore` guarda até 30 itens, mais recente primeiro, em UserDefaults.
+Arquivos viram referências (bookmark que segue o original; se ele for apagado ou for
+para o Lixo, o item some); só imagens, links (.webloc), textos e arquivos prometidos pelo
+navegador viram cópias em `~/Library/Application Support/Notch/Shelf` (0700), apagadas
+com o item. `Shelf` (núcleo) remove duplicatas e itens vencidos; uma única tarefa espera
+o próximo vencimento. O NSHostingView aceita drops na região da ilha (ignorando arrastos
+que saem da própria bandeja). A janela passa 1 ponto acima da borda da tela
+(`IslandGeometry.edgeOverlap`, sem restrição de frame): o cursor preso na borda informa
+y == maxY e, sem isso, o arrasto cairia no Mission Control. Os drops chegam a uma view
+própria (conteúdo da janela, com o NSHostingView dentro), para o registro de arrasto do
+SwiftUI não competir. Um monitor global de botão esquerdo (só recebe eventos com o botão
+pressionado) percebe um arrasto de conteúdo pela mudança do pasteboard de arrasto e, a
+180 pontos do topo perto do notch, abre a ilha para baixo na aba Bandeja com uma área de
+soltar ocupando o painel: o arquivo é solto abaixo da borda, sem acionar o Mission
+Control. Com histerese de 70 pontos em volta do painel, ela fecha quando o arrasto se
+afasta ou termina em outro lugar; após um drop, fecha em 0,9 s mostrando o item novo.
+Para fora, `ShelfDragCoordinator` é a fonte do arrasto e sobrevive ao recolher:
+copia por padrão e move com ⌘ (ou o inverso); soltar em outro lugar tira o item da
+bandeja (opção ligada por padrão). Uma cópia própria só é apagada um minuto depois,
+porque o destino pode ainda estar copiando. Miniaturas
+vêm do QLThumbnailGenerator fora da main actor; antes disso, o ícone do tipo. O hover
+compacto alterna entre as atividades disponíveis com um botão próprio. Ao abrir a ilha,
+a aba segue esta ordem: Bandeja, se recebeu itens nos últimos 10 minutos; senão a única
+atividade em andamento (música tocando, timer, Acordado ou bandeja com itens); com mais
+de uma, ou nenhuma, fica a última aba usada.
+Prints e downloads: `FolderWatcher` usa um DispatchSource (kqueue) na pasta, em fila
+própria, e só reporta nomes novos, visíveis e finalizados (`WatchedFile` ignora
+.crdownload, .download etc.). Prints exigem o atributo kMDItemIsScreenCapture; a pasta
+vem das preferências do screencapture (Mesa por padrão). Os watchers só existem com as
+opções ligadas, e o macOS pede acesso à pasta nesse momento. Avisos transitórios
+(`IslandNotice`) ocupam as orelhas por 3 a 5 s; o último download fica dois minutos no
+hover compacto com Abrir, Mostrar no Finder e Guardar na bandeja.
+Carregador: `PowerMonitor` observa a fonte de energia só com algum aviso ligado e em Macs
+com bateria; `PowerEvents` (núcleo) decide entre conectado, desconectado, carga completa
+e bateria fraca (cruzando 20% ou 10% na bateria), cada um visível por alguns segundos.
 Manter acordado: `PowerAssertion` cria no próprio processo a asserção de energia
 que o `caffeinate` usa (IOPMAssertionCreateWithName), PreventUserIdleDisplaySleep
 ou, com “Permitir que a tela apague”, PreventUserIdleSystemSleep. Não há processo

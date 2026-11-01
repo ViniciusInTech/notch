@@ -24,15 +24,19 @@ public struct IslandLayout: Equatable {
         self.screenWidth = max(200, screenWidth)
     }
 
-    public func size(active: Bool, expanded: Bool, activityCount: Int = 1) -> IslandSize {
+    /// Both ears of the compact hover: one activity with its controls, at the notch height.
+    public static let compactWings = 300.0
+
+    public func size(active: Bool, expanded: Bool, activityCount: Int = 1, compact: Bool = false) -> IslandSize {
         let wings = activityCount > 1 ? 184.0 : 104.0
         // Expanded ears hold the tab switcher and actions beside the camera.
-        let width = expanded ? max(460, notchWidth + 280) : notchWidth + (active ? wings : 0)
+        let width = expanded ? max(460, notchWidth + 280)
+            : compact ? notchWidth + Self.compactWings : notchWidth + (active ? wings : 0)
         return IslandSize(width: min(width, screenWidth - 16 - 2 * Self.shoulderWidth), height: expanded ? notchHeight + Self.expandedBodyHeight : notchHeight)
     }
 
-    public func outerSize(active: Bool, expanded: Bool, activityCount: Int = 1) -> IslandSize {
-        let body = size(active: active, expanded: expanded, activityCount: activityCount)
+    public func outerSize(active: Bool, expanded: Bool, activityCount: Int = 1, compact: Bool = false) -> IslandSize {
+        let body = size(active: active, expanded: expanded, activityCount: activityCount, compact: compact)
         return IslandSize(width: body.width + 2 * Self.shoulderWidth, height: body.height)
     }
 }

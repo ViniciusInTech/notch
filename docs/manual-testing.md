@@ -79,6 +79,22 @@ verificados durante o desenvolvimento; repita-os para cada versão relevante.
 - [ ] Pergunta e plano numa sessão real do Claude Code.
 - [ ] Recusar com instrução escrita e conferir a mensagem no Claude Code.
 
+- [ ] Alerta com som, sem som e silencioso; notificação some ao responder na ilha.
+- [x] Câmera em uso mostra “Em chamada · Silencioso” (Photo Booth).
+- [ ] Pedido durante a chamada chega sem som; ao terminar, um único som.
+
+## Hover compacto, bandeja e avisos
+
+- [x] Hover compacto com música, reunião, download e bandeja; ⇆ alterna entre eles.
+- [ ] Arrastar arquivo do Finder até o notch abre a área de soltar sem Mission Control.
+- [ ] Puxar item para outra pasta copia e tira da bandeja; com ⌘, move.
+- [ ] Imagem e link arrastados do navegador viram cópias e são apagados ao sair.
+- [x] Print entra na bandeja com aviso; download mostra “Baixado”.
+- [ ] Itens expiram no prazo escolhido e somem se o original for para o Lixo.
+- [x] Reunião com link do Meet: “em N min” e depois “agora” (evento de teste).
+- [ ] Entrar abre o link; dispensar remove a reunião da ilha.
+- [ ] Conectar e desconectar o carregador; carga completa; bateria fraca.
+
 ## Aparência, login e recursos
 
 - [ ] Capas de cores distintas atualizam a cor das ondas.

@@ -21,6 +21,41 @@ public enum AgentEventKind: Sendable {
     public var waitsForAnswer: Bool { self != .completion }
 }
 
+/// How a new assistant notification calls attention beyond the island itself.
+public enum AgentAlertMode: String, CaseIterable, Sendable {
+    /// macOS notification with sound.
+    case sound
+    /// macOS notification without sound.
+    case banner
+    /// Island only: no notification, no sound.
+    case silent
+
+    public struct Alert: Equatable, Sendable {
+        public let sound: Bool
+        public let banner: Bool
+    }
+
+    /// Completions alert only when opted in; requests always follow the mode.
+    public func alert(for kind: AgentEventKind, includeCompletions: Bool) -> Alert {
+        guard kind.waitsForAnswer || includeCompletions else { return Alert(sound: false, banner: false) }
+        return Alert(sound: self == .sound, banner: self != .silent)
+    }
+}
+
+/// What assistant notifications do while the camera or microphone is in use.
+public enum CallAlertMode: String, CaseIterable, Sendable {
+    case silent, banner, pause
+
+    /// The alert mode during a call; nil pauses notifications, handing requests back to the assistant.
+    public func applied(to mode: AgentAlertMode) -> AgentAlertMode? {
+        switch self {
+        case .silent: return .silent
+        case .banner: return mode == .silent ? .silent : .banner
+        case .pause: return nil
+        }
+    }
+}
+
 public struct AgentOption: Equatable, Sendable {
     public let label: String
     public let description: String
