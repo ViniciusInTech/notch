@@ -49,16 +49,39 @@ private struct DecodedArtwork {
                 guard !Task.isCancelled, let self, self.currentURL == url else { return }
                 self.loading = false
                 guard let decoded else { self.retryAfter = Date().addingTimeInterval(30); return }
-                let image = NSImage(cgImage: decoded.thumbnail, size: NSSize(width: 128, height: 128))
-                self.cache.setObject(CachedArtwork(image: image, accent: decoded.accent), forKey: url as NSURL, cost: 256 * 256 * 4)
-                self.image = image
-                self.accent = decoded.accent
+                self.store(decoded, for: url)
             } catch {
                 guard !Task.isCancelled, let self, self.currentURL == url else { return }
                 self.loading = false
                 self.retryAfter = Date().addingTimeInterval(30)
             }
         }
+    }
+
+    /// Cover bytes from the Now Playing session; `key` changes only when the image does.
+    func load(data: Data?, key: String?) {
+        guard let key, let cacheKey = URL(string: "notch-artwork:\(key)") else { load(nil); return }
+        guard cacheKey != currentURL || (image == nil && data != nil && task == nil) else { return }
+        currentURL = cacheKey
+        task?.cancel()
+        loading = false
+        if let cached = cache.object(forKey: cacheKey as NSURL) { image = cached.image; accent = cached.accent; return }
+        image = nil
+        accent = .fallback
+        guard let data else { return }
+        task = Task { [weak self] in
+            let decoded = await Task.detached(priority: .utility) { Self.decode(data) }.value
+            guard !Task.isCancelled, let self, self.currentURL == cacheKey else { return }
+            self.task = nil
+            if let decoded { self.store(decoded, for: cacheKey) }
+        }
+    }
+
+    private func store(_ decoded: DecodedArtwork, for key: URL) {
+        let image = NSImage(cgImage: decoded.thumbnail, size: NSSize(width: 128, height: 128))
+        cache.setObject(CachedArtwork(image: image, accent: decoded.accent), forKey: key as NSURL, cost: 256 * 256 * 4)
+        self.image = image
+        accent = decoded.accent
     }
 
     /// Network streaming and ImageIO decoding execute outside the UI actor.
@@ -74,6 +97,10 @@ private struct DecodedArtwork {
             data.append(byte)
             guard data.count <= 2_000_000 else { return nil }
         }
+        return decode(data)
+    }
+
+    nonisolated private static func decode(_ data: Data) -> DecodedArtwork? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
             kCGImageSourceCreateThumbnailFromImageAlways: true,

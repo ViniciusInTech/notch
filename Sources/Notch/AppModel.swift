@@ -149,6 +149,11 @@ enum IslandNotice: Equatable {
 
     var compactShown: Bool { (compactOpen || shelfDropTarget) && !expanded && compactPanel != nil }
     private let runner = AutomationRunner()
+    private let systemMedia = SystemMediaProvider()
+    private var systemSnapshot: MediaSnapshot?
+    private var systemArtwork: Data?
+    /// Display names of Now Playing apps, resolved once per bundle.
+    private var playerNames: [String: String] = [:]
     private var spotifySnapshot: MediaSnapshot?
     private var browserSnapshot: MediaSnapshot?
     private var lastSpotifyRead = Date.distantPast
@@ -194,6 +199,7 @@ enum IslandNotice: Equatable {
         workspace.publisher(for: NSWorkspace.willSleepNotification).sink { [weak self] _ in
             Task { @MainActor in
                 self?.sleeping = true; self?.loop?.cancel(); self?.timerTask?.cancel(); self?.keepAwakeTask?.cancel()
+                self?.systemMedia.stop()
                 self?.meetingTask?.cancel(); self?.shelf.suspend()
             }
         }.store(in: &subscriptions)
@@ -209,13 +215,22 @@ enum IslandNotice: Equatable {
             .sink { [weak self] _ in Task { @MainActor in await self?.refresh(force: true) } }
             .store(in: &subscriptions)
         preferences.$spotifyEnabled.dropFirst().map { _ in () }
-            .merge(with: preferences.$browserEnabled.dropFirst().map { _ in () }, preferences.$browser.dropFirst().map { _ in () })
+            .merge(with: preferences.$browserEnabled.dropFirst().map { _ in () }, preferences.$browser.dropFirst().map { _ in () },
+                   preferences.$systemMediaEnabled.dropFirst().map { _ in () })
             .debounce(for: .milliseconds(150), scheduler: RunLoop.main)
             .sink { [weak self] _ in
                 guard let self else { return }
                 self.spotifySnapshot = nil; self.browserSnapshot = nil; self.errors = [:]
+                self.syncSystemMedia()
                 Task { await self.refresh(force: true) }
             }.store(in: &subscriptions)
+        systemMedia.onUpdate = { [weak self] update in self?.receive(update) }
+        systemMedia.onFailure = { [weak self] message in
+            guard let self else { return }
+            self.errors[.system] = message
+            self.systemSnapshot = nil
+            Task { await self.refresh(force: true) }
+        }
         // @Published emits before storing; hopping to the next run loop turn reads the stored values.
         preferences.$agentsEnabled.dropFirst().map { _ in () }
             .merge(with: preferences.$agentsPaused.dropFirst().map { _ in () },
@@ -257,6 +272,7 @@ enum IslandNotice: Equatable {
     }
 
     func start() {
+        syncSystemMedia()
         syncCallMonitor()
         syncAgentServer()
         refreshMeetings()
@@ -278,6 +294,7 @@ enum IslandNotice: Equatable {
 
     func stop() {
         loop?.cancel(); timerTask?.cancel(); completionTask?.cancel(); keepAwakeTask?.cancel()
+        systemMedia.stop()
         power.release()
         meetingTask?.cancel()
         calls.stop()
@@ -754,6 +771,7 @@ enum IslandNotice: Equatable {
     func retryConnections() {
         errors = [:]
         attention = nil
+        syncSystemMedia()
         Task { await refresh(force: true) }
     }
 
@@ -770,7 +788,8 @@ enum IslandNotice: Equatable {
     }
 
     private func isRunning(_ source: MediaSource) -> Bool {
-        !NSRunningApplication.runningApplications(withBundleIdentifier: source.bundleIdentifier).isEmpty
+        guard source != .system else { return false }
+        return !NSRunningApplication.runningApplications(withBundleIdentifier: source.bundleIdentifier).isEmpty
     }
 
     func refresh(force: Bool = false) async {
@@ -778,21 +797,22 @@ enum IslandNotice: Equatable {
         refreshing = true
         defer { refreshing = false }
         let now = Date()
-        if !preferences.spotifyEnabled || !isRunning(.spotify) { spotifySnapshot = nil }
+        // The system session already covers Spotify and browsers; AppleScript is only a fallback.
+        let systemCovers = systemMediaActive
+        if systemCovers || !preferences.spotifyEnabled || !isRunning(.spotify) { spotifySnapshot = nil }
         else if errors[.spotify] == nil, force || now.timeIntervalSince(lastSpotifyRead) >= 5 {
             lastSpotifyRead = now
             do { spotifySnapshot = try await SpotifyProvider(runner: runner).snapshot() }
             catch { errors[.spotify] = friendlyError(error); spotifySnapshot = nil }
         }
         let browser = preferences.browser
-        if !preferences.browserEnabled || !isRunning(browser) { browserSnapshot = nil }
+        if systemCovers || !preferences.browserEnabled || !isRunning(browser) { browserSnapshot = nil }
         else if errors[browser] == nil, force || now.timeIntervalSince(lastBrowserRead) >= 3 {
             lastBrowserRead = now
             do { browserSnapshot = try await BrowserProvider(source: browser, runner: runner).snapshot() }
             catch { errors[browser] = friendlyError(error); browserSnapshot = nil }
         }
-        let chosen = MediaSelection.choose(spotify: spotifySnapshot, browser: browserSnapshot)
-        if media != chosen { media = chosen; artwork.load(chosen?.artworkURL) }
+        applyMediaSelection()
         let blocked = errors.isEmpty ? nil : MediaSource.allCases.first { errors[$0] != nil && isRunning($0) }
         if attention != blocked { attention = blocked }
         synchronizeActivities()
@@ -804,6 +824,11 @@ enum IslandNotice: Equatable {
         Task {
             defer { commandBusy = false }
             do {
+                if source == .system {
+                    systemMedia.perform(command)
+                    commandBusy = false
+                    return
+                }
                 if source == .spotify { try await SpotifyProvider(runner: runner).perform(command) }
                 else { try await BrowserProvider(source: source, runner: runner).perform(command) }
                 // Release the command gate before reconciling; refresh itself remains single-flight.
@@ -811,6 +836,55 @@ enum IslandNotice: Equatable {
                 await refresh(force: true)
             } catch { errors[source] = friendlyError(error) }
         }
+    }
+
+    private var systemMediaActive: Bool { preferences.systemMediaEnabled && errors[.system] == nil }
+
+    private func syncSystemMedia() {
+        if systemMediaActive && !sleeping { systemMedia.start() }
+        else {
+            systemMedia.stop()
+            systemSnapshot = nil; systemArtwork = nil
+        }
+    }
+
+    private func receive(_ update: NowPlayingUpdate) {
+        guard systemMediaActive else { return }
+        if let data = update.artwork { systemArtwork = data }
+        var snapshot = update.media
+        if let bundle = snapshot?.playerBundle {
+            // Our own process never publishes; ignore a stale session pointing back at it.
+            if bundle == Bundle.main.bundleIdentifier { snapshot = nil }
+        }
+        if snapshot?.artworkKey == nil { systemArtwork = nil }
+        systemSnapshot = snapshot
+        applyMediaSelection()
+        // Cover bytes can arrive in a line whose fields match the shown snapshot.
+        if update.artwork != nil, media?.source == .system { artwork.load(data: systemArtwork, key: media?.artworkKey) }
+        synchronizeActivities()
+    }
+
+    private func applyMediaSelection() {
+        let chosen = MediaSelection.choose(system: systemSnapshot, spotify: spotifySnapshot, browser: browserSnapshot)
+        guard media != chosen else { return }
+        media = chosen
+        if chosen?.source == .system { artwork.load(data: systemArtwork, key: chosen?.artworkKey) }
+        else { artwork.load(chosen?.artworkURL) }
+    }
+
+    /// App name shown beside the artist, such as "Música" or "Google Chrome".
+    func playerName(_ media: MediaSnapshot) -> String {
+        guard media.source == .system else { return media.source == .chrome ? "Chrome" : media.source.name }
+        guard let bundle = media.playerBundle else { return "Mac" }
+        if let cached = playerNames[bundle] { return cached }
+        var name = bundle
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle) {
+            name = FileManager.default.displayName(atPath: url.path)
+            if name.hasSuffix(".app") { name = String(name.dropLast(4)) }
+        }
+        if bundle == MediaSource.chrome.bundleIdentifier { name = "Chrome" }
+        playerNames[bundle] = name
+        return name
     }
 
     func startTimer(minutes: Double, showPage: Bool = true) {

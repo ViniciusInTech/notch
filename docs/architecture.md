@@ -61,6 +61,17 @@ dominante em uma amostra RGBA de 16 × 16 da capa, com brilho mínimo para contr
 no preto. A extração roda junto com a decodificação fora da main actor e o cache
 armazena tanto a imagem quanto a cor. Sem capa, as ondas usam um tom neutro.
 
+`SystemMediaProvider` lê o Tocando agora do macOS (MediaRemote), que cobre Música,
+Spotify, navegadores e qualquer app da Central de Controle. Desde o macOS 15.4 o
+MediaRemote só responde a processos assinados pela Apple, então `/usr/bin/perl`
+carrega `libNotchMediaBridge.dylib` (alvo ObjC próprio, em Contents/Frameworks) e
+chama `notch_media_stream`: a ponte registra as notificações de Tocando agora, sem
+consulta periódica, e escreve uma linha JSON por mudança (capa em base64 só quando
+muda, até 2 MB). Comandos (alternar, anterior, próxima, posição) voltam pela entrada
+padrão; fechar a entrada encerra o helper. `MediaParser.nowPlaying` (núcleo) traduz a
+linha. O helper só existe com a opção ligada e fora da suspensão; após três falhas
+seguidas, a fonte é marcada com erro e Spotify e navegador voltam a ser consultados.
+Com o Tocando agora ativo, os scripts de Spotify e navegador não rodam.
 `SpotifyProvider` usa a interface AppleScript do Spotify e recebe eventos de
 reprodução como indicação para reconciliar. `BrowserProvider` usa JavaScript
 fixo em uma aba ativa opt-in. Falhas são apresentadas por fonte e bloqueiam novas

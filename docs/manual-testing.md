@@ -54,6 +54,10 @@ verificados durante o desenvolvimento; repita-os para cada versão relevante.
 - [ ] Safari e Chrome: aba ativa com áudio/vídeo HTML5, seek e pausa.
 - [ ] Navegador sem JavaScript via Apple Events: mostrar orientação nas conexões.
 - [ ] Fonte tocando tem prioridade sobre uma pausada; Spotify vence se ambas tocam.
+- [ ] Tocando agora: Música, YouTube Music (Chrome/Safari) e Spotify mostram capa, título, app e progresso.
+- [ ] Tocando agora: play/pausa, anterior/próxima e seek pelo Notch e pelas teclas de mídia ficam em sincronia.
+- [ ] Tocando agora desligado: Spotify e navegador voltam a ser consultados; ligado, nenhum osascript periódico.
+- [ ] Encerrar o Notch encerra o processo perl do helper.
 
 ## Pomodoro e temporizador
 

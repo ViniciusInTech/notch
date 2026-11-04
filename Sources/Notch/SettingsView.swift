@@ -46,6 +46,12 @@ struct SettingsView: View {
             }.formStyle(.grouped).tabItem { Label("Geral", systemImage: "slider.horizontal.3") }
 
             Form {
+                Section("Tocando agora") {
+                    Toggle("Ler o Tocando agora do macOS", isOn: $preferences.systemMediaEnabled)
+                    Text("Mostra e controla o que o Mac está tocando: Música, Spotify, YouTube Music, navegadores e outros apps que aparecem na Central de Controle. Não pede Automação. Com esta opção, Spotify e navegador abaixo ficam só como reserva.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if preferences.systemMediaEnabled { connectionStatus(.system) }
+                }
                 Section("Spotify") {
                     Toggle("Integrar com Spotify", isOn: $preferences.spotifyEnabled)
                     connectionStatus(.spotify)

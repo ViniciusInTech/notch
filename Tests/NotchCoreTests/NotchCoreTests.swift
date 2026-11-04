@@ -121,6 +121,30 @@ struct NotchCoreTests {
         #expect(MediaSelection.choose(spotify: snapshot(source: .spotify, playing: false), browser: nil)?.source == .spotify)
     }
 
+    @Test func testPlayingSystemSessionWinsAndPausedOneStaysAvailable() {
+        let system = snapshot(source: .system, playing: true)
+        #expect(MediaSelection.choose(system: system, spotify: snapshot(source: .spotify, playing: true), browser: nil)?.source == .system)
+        let paused = snapshot(source: .system, playing: false)
+        #expect(MediaSelection.choose(system: paused, spotify: snapshot(source: .spotify, playing: true), browser: nil)?.source == .spotify)
+        #expect(MediaSelection.choose(system: paused, spotify: nil, browser: nil)?.source == .system)
+    }
+
+    @Test func testNowPlayingLineParsing() throws {
+        let line = #"{"title":"Song","artist":"","album":"Album","duration":200,"elapsed":12.5,"rate":1,"playing":true,"timestamp":100,"bundle":"com.apple.Music","artwork":"AQID","artworkId":3}"#
+        let update = try #require(MediaParser.nowPlaying(line))
+        let media = try #require(update.media)
+        #expect(media.source == .system)
+        #expect(media.artist == "Album")
+        #expect(media.isPlaying)
+        #expect(media.position(at: Date(timeIntervalSince1970: 110)) == 22.5)
+        #expect(media.playerBundle == "com.apple.Music")
+        #expect(media.artworkKey == "nowplaying-3")
+        #expect(update.artwork == Data([1, 2, 3]))
+        #expect(MediaParser.nowPlaying(#"{"empty":true}"#) == NowPlayingUpdate(media: nil))
+        #expect(MediaParser.nowPlaying(#"{"title":"","playing":true}"#) == NowPlayingUpdate(media: nil))
+        #expect(MediaParser.nowPlaying("garbage") == nil)
+    }
+
     @Test func testProgressIsEstimatedAndClamped() {
         let date = Date(timeIntervalSince1970: 100)
         var media = snapshot(source: .spotify, playing: true)

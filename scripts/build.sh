@@ -16,9 +16,10 @@ cleanup() {
 }
 trap cleanup EXIT
 APP="$STAGE/Notch.app"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 cp "$BIN_DIR/Notch" "$APP/Contents/MacOS/Notch"
 cp "$BIN_DIR/notch-hook" "$APP/Contents/MacOS/notch-hook"
+cp "$BIN_DIR/libNotchMediaBridge.dylib" "$APP/Contents/Frameworks/libNotchMediaBridge.dylib"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 cp "$ROOT/LICENSE" "$ROOT/NOTICE" "$APP/Contents/Resources/"
@@ -28,6 +29,8 @@ SIGN_ARGS=(--force --sign "$IDENTITY" --options runtime --entitlements "$ROOT/Re
 # Notarization requires a secure timestamp; ad hoc signatures cannot carry one.
 if [[ "$IDENTITY" != "-" ]]; then SIGN_ARGS+=(--timestamp); fi
 codesign "${SIGN_ARGS[@]}" "$APP/Contents/MacOS/notch-hook"
+# Loaded by /usr/bin/perl, not by Notch; signed so the bundle seal stays valid.
+codesign --force --sign "$IDENTITY" ${CODE_SIGN_IDENTITY:+--timestamp} "$APP/Contents/Frameworks/libNotchMediaBridge.dylib"
 codesign "${SIGN_ARGS[@]}" "$APP"
 codesign --verify --strict "$APP"
 if [[ -e "$TARGET" ]]; then mv "$TARGET" "$STAGE/Previous.app"; fi

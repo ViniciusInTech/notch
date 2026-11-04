@@ -4,6 +4,8 @@ import NotchCore
 
 @MainActor final class Preferences: ObservableObject {
     private let defaults: UserDefaults
+    /// Reads the macOS Now Playing session; Spotify and browser scripts become fallbacks.
+    @Published var systemMediaEnabled: Bool { didSet { defaults.set(systemMediaEnabled, forKey: "systemMediaEnabled") } }
     @Published var spotifyEnabled: Bool { didSet { defaults.set(spotifyEnabled, forKey: "spotifyEnabled") } }
     @Published var browserEnabled: Bool { didSet { defaults.set(browserEnabled, forKey: "browserEnabled") } }
     @Published var browser: MediaSource { didSet { defaults.set(browser.rawValue, forKey: "browser") } }
@@ -69,7 +71,7 @@ import NotchCore
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        defaults.register(defaults: ["spotifyEnabled": true, "browserEnabled": false,
+        defaults.register(defaults: ["systemMediaEnabled": true, "spotifyEnabled": true, "browserEnabled": false,
                                      "browser": "safari", "expandOnHover": true, "compactHover": true,
                                      "reduceMotion": false, "soundEnabled": true,
                                      "offerMoveToApplications": true,
@@ -89,6 +91,7 @@ import NotchCore
                                      "keepAwakeAllowDisplaySleep": false, "keepAwakeBatteryCutoff": true,
                                      "keepAwakeShowCollapsed": true, "keepAwakeCustomQuantity": 3,
                                      "keepAwakeCustomUnit": "hours", "keepAwakeCustomUsed": false])
+        systemMediaEnabled = defaults.bool(forKey: "systemMediaEnabled")
         spotifyEnabled = defaults.bool(forKey: "spotifyEnabled")
         browserEnabled = defaults.bool(forKey: "browserEnabled")
         browser = MediaSource(rawValue: defaults.string(forKey: "browser") ?? "safari") == .chrome ? .chrome : .safari

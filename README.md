@@ -162,8 +162,8 @@ Ao terminar, um único som avisa o que chegou durante a chamada.
 ## O que o Notch faz
 
 - **Música à mão:** capa, faixa, artista, reprodução, anterior/próxima e progresso.
-- **Spotify sem conta extra:** integração com o app instalado, sem chave de API.
-- **Navegador opcional:** mídia HTML5 da aba ativa do Safari ou Google Chrome.
+- **Qualquer player do Mac:** lê o Tocando agora do macOS, então Música (Apple Music), Spotify, YouTube Music, Safari, Chrome e outros apps aparecem com capa, estado real de play/pausa e controles, sem permissão de Automação.
+- **Spotify e navegador como reserva:** integrações por script usadas só se o Tocando agora estiver desligado ou indisponível.
 - **Pomodoro configurável:** duração de foco e pausas, número de sessões por ciclo e início automático opcional.
 - **Manter acordado:** impede o Mac de dormir por um tempo escolhido, sem limite ou por minutos, horas ou dias, como o `caffeinate`, sem processo extra.
 - **Avisos de assistentes:** Claude Code e Codex pedem permissões, aprovação de planos e respostas pela ilha; Claude, Codex e Cursor avisam ao concluir.
@@ -234,9 +234,24 @@ macOS 14 ou superior. Builds Intel ainda não foram validados.
 
 ## Permissões e integrações
 
+### Tocando agora (Música, YouTube Music, navegadores e outros)
+
+Ligado por padrão em **Configurações → Conexões**. O Notch lê o mesmo “Tocando
+agora” da Central de Controle: Música, Spotify, YouTube Music, Safari, Chrome e
+qualquer app que publique mídia no macOS, com capa, progresso, play/pausa,
+anterior/próxima e busca. Não pede permissão de Automação.
+
+Play, pausa e troca de faixa aparecem na ilha na hora, inclusive quando feitos no
+próprio app, nas teclas de mídia ou na Central de Controle.
+
+Como o macOS restringe essa leitura a processos da Apple, um pequeno helper roda
+pelo `perl` do sistema enquanto a opção está ligada, só esperando eventos. Ele usa
+uma interface privada do macOS e pode parar de funcionar numa atualização; nesse
+caso o Notch volta para as integrações abaixo.
+
 ### Spotify
 
-Abra o Spotify e inicie uma faixa. Se o macOS solicitar, autorize o Notch a
+Usado só com o Tocando agora desligado ou indisponível. Abra o Spotify e inicie uma faixa. Se o macOS solicitar, autorize o Notch a
 controlá-lo em **Ajustes do Sistema → Privacidade e Segurança → Automação**.
 Não é necessário conectar uma conta pela web ou fornecer credenciais ao Notch.
 
@@ -253,7 +268,7 @@ Funciona com elementos `audio` e `video` HTML5 do documento principal. Iframes,
 DRM, abas em segundo plano e players personalizados podem não funcionar.
 Anterior/próxima são oferecidos no Spotify e no player do YouTube.
 
-Não há integração universal com todo áudio do Mac. O conteúdo das páginas,
+Essas integrações por script ficam como reserva do Tocando agora. O conteúdo das páginas,
 histórico e credenciais não são enviados a servidores pelo Notch.
 
 ### Pomodoro
@@ -396,8 +411,11 @@ As ondas usam cinco camadas de Core Animation, com preferência de 24 quadros/s
 e máximo de 30. Param ao expandir a ilha, pausar a música ou habilitar Reduzir
 Movimento. A cor é extraída uma vez por capa, fora da interface, e fica em cache.
 
-O Spotify usa eventos de reprodução e reconciliação periódica enquanto está
-aberto. O navegador só é consultado quando a integração está habilitada e ele
+O Tocando agora usa um helper que só espera eventos do macOS, sem consultas
+periódicas, e atualiza a ilha assim que a reprodução muda; a capa só é enviada
+quando troca. Com ele ativo, Spotify e navegador não são consultados. Na reserva,
+o Spotify usa eventos de reprodução e reconciliação periódica enquanto está
+aberto, e o navegador só é consultado quando a integração está habilitada e ele
 está aberto. As consultas param durante a suspensão do Mac; respostas de
 automação não bloqueiam a interface. Capas têm limites de download e cache.
 

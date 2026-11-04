@@ -475,7 +475,7 @@ struct IslandView: View {
                     }.padding(.top, 4)
                 } else {
                     Text("Sua música aparece aqui").font(.system(size: 13.5, weight: .semibold))
-                    Text(model.errors.isEmpty ? "Inicie a reprodução no Spotify ou no navegador." : "Confira as permissões em Conexões nas configurações.")
+                    Text(model.errors.isEmpty ? "Toque algo no Música, Spotify ou navegador." : "Confira as permissões em Conexões nas configurações.")
                         .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2)
                 }
             }.reveal(visible, order: 2, reduce: reduce)
@@ -506,8 +506,9 @@ private struct MusicPanel: View {
                     HStack(spacing: 5) {
                         Text(media.artist).foregroundStyle(.secondary).lineLimit(1)
                         Text("·").foregroundStyle(.tertiary)
-                        Text(media.source == .chrome ? "Chrome" : media.source.name)
-                            .foregroundStyle(media.source == .spotify ? Color(red: 0.29, green: 0.87, blue: 0.5) : Color.secondary)
+                        Text(model.playerName(media))
+                            .foregroundStyle(media.source == .spotify || media.playerBundle == MediaSource.spotify.bundleIdentifier
+                                             ? Color(red: 0.29, green: 0.87, blue: 0.5) : Color.secondary)
                             .fixedSize()
                     }
                     .font(.system(size: 11.5))
