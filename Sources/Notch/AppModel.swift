@@ -9,18 +9,24 @@ import os
 private let agentLog = Logger(subsystem: "dev.vinicius.Notch", category: "agents")
 private let awakeLog = Logger(subsystem: "dev.vinicius.Notch", category: "keepAwake")
 private let meetingLog = Logger(subsystem: "dev.vinicius.Notch", category: "meetings")
+private let keyLog = Logger(subsystem: "dev.vinicius.Notch", category: "keys")
 
 /// Tabs of the expanded island.
 enum IslandPage { case music, timer, keepAwake, shelf }
 
 /// What the compact hover shows: one activity with its controls beside the camera.
-enum CompactPanel { case drop, meeting, download, timer, music, keepAwake, shelf }
+enum CompactPanel { case drop, meeting, download, timer, music, keepAwake, shelf, headphones }
+
+/// The two sections of the shelf tab: dropped files and copied content.
+enum ShelfSection { case files, clips }
 
 /// A short-lived message on the collapsed island.
 enum IslandNotice: Equatable {
     case screenshot(count: Int, path: String)
     case download(path: String)
     case power(PowerEvent)
+    case headphones(HeadphoneDevice)
+    case copied(ClipKind)
 }
 
 @MainActor final class AppModel: ObservableObject {
@@ -28,6 +34,7 @@ enum IslandNotice: Equatable {
     let login = LoginService()
     let artwork = ArtworkStore()
     let shelf = ShelfStore()
+    let clipboard = ClipboardStore()
     @Published private(set) var media: MediaSnapshot?
     @Published private(set) var countdown = Countdown()
     @Published private(set) var errors: [MediaSource: String] = [:]
@@ -37,6 +44,7 @@ enum IslandNotice: Equatable {
             guard expanded != oldValue else { return }
             if !expanded { keepAwakeEditing = false; return }
             compactOpen = false
+            if preferences.clipboardEnabled { clipboard.prune(); clipboard.checkNow() }
             if let opening = openingPage { page = opening }
         }
     }
@@ -57,7 +65,12 @@ enum IslandNotice: Equatable {
         return ongoing.count == 1 ? ongoing[0] : nil
     }
     /// The compact hover: the island widens at the notch height instead of opening downward.
-    @Published var compactOpen = false { didSet { if !compactOpen { compactSelection = nil } } }
+    @Published var compactOpen = false {
+        didSet {
+            if !compactOpen { compactSelection = nil }
+            else if !oldValue { refreshHeadphone() }
+        }
+    }
     /// Panel picked with the switch button in the compact hover; reset when it closes.
     @Published private(set) var compactSelection: CompactPanel?
     /// A drag is near the notch: the island opens downward on the shelf with a drop area,
@@ -98,6 +111,13 @@ enum IslandNotice: Equatable {
     @Published private(set) var meeting: MeetingAlert?
     @Published private(set) var calendars: [CalendarInfo] = []
     @Published private(set) var calendarDenied = false
+    /// Volume or brightness just changed by its key; shown on the island for a moment.
+    @Published private(set) var hud: SystemLevel?
+    /// The Bluetooth headset connected now, while its notice is on.
+    @Published private(set) var headphone: HeadphoneDevice?
+    @Published var shelfSection = ShelfSection.files
+    /// A feature that needs the key tap is on but Accessibility is not granted.
+    @Published private(set) var accessibilityMissing = false
 
     var agentEvent: AgentEvent? { agentEvents.first }
     var showsAttention: Bool { attention != nil && activityOrder.items.isEmpty && !completionVisible }
@@ -106,7 +126,7 @@ enum IslandNotice: Equatable {
     var shelfVisible: Bool { preferences.shelfEnabled && preferences.shelfShowCollapsed && !shelf.items.isEmpty }
     var hasOtherActivity: Bool {
         media?.isPlaying == true || countdown.isActive || completionVisible || showsAttention || keepAwakeVisible
-            || meeting != nil || callNoticeVisible || notice != nil || shelfVisible
+            || meeting != nil || callNoticeVisible || notice != nil || shelfVisible || hud != nil
     }
     /// With music or a timer on the island, the assistant gets its own bubble beside it.
     var agentInBubble: Bool { agentEvent != nil && hasOtherActivity }
@@ -117,7 +137,7 @@ enum IslandNotice: Equatable {
     /// A timer's clock plus the Keep Awake cup also needs the wider ears.
     var compactIsWide: Bool {
         activityOrder.items.count > 1 || completionVisible || showsAttention || agentInIsland
-            || (keepAwakeVisible && countdown.isActive) || meeting != nil || callNoticeVisible || notice != nil
+            || (keepAwakeVisible && countdown.isActive) || meeting != nil || callNoticeVisible || notice != nil || hud != nil
     }
 
     /// What the compact hover can show, most urgent first: a drop in progress alone, then the
@@ -132,6 +152,7 @@ enum IslandNotice: Equatable {
         if keepAwake != nil { panels.append(.keepAwake) }
         if preferences.shelfEnabled && !shelf.items.isEmpty { panels.append(.shelf) }
         if media != nil && !panels.contains(.music) { panels.append(.music) }
+        if headphone != nil { panels.append(.headphones) }
         return panels
     }
 
@@ -193,6 +214,13 @@ enum IslandNotice: Equatable {
     private let screenshots = FolderWatcher(label: "screenshots")
     private let downloads = FolderWatcher(label: "downloads")
     private let powerMonitor = PowerMonitor()
+    private let keyTap = KeyTap()
+    private var hudTask: Task<Void, Never>?
+    private let headphones = HeadphoneMonitor()
+    private var headphonesRunning = false
+    private var accessibilityObserver: AnyCancellable?
+    /// An ad hoc signed rebuild loses Accessibility: the prompt is shown again once per run.
+    private var accessibilityAsked = false
 
     init() {
         let workspace = NSWorkspace.shared.notificationCenter
@@ -269,6 +297,27 @@ enum IslandNotice: Equatable {
             .sink { [weak self] cutoff in if cutoff { self?.checkBattery() } }
             .store(in: &subscriptions)
         power.powerChanged = { [weak self] in self?.checkBattery() }
+        clipboard.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &subscriptions)
+        clipboard.captured = { [weak self] kind in
+            guard let self, self.preferences.clipboardNotice else { return }
+            self.showNotice(.copied(kind), seconds: 1.2)
+        }
+        keyTap.onLevel = { [weak self] level in self?.showLevel(level) }
+        keyTap.onCopy = { [weak self] in self?.clipboard.copyShortcutPressed() }
+        headphones.connected = { [weak self] device, fresh in self?.headphoneConnected(device, fresh: fresh) }
+        headphones.disconnected = { [weak self] address in
+            guard let self, self.headphone?.address == address else { return }
+            self.headphone = nil
+            if case .headphones = self.notice { self.notice = nil }
+        }
+        let inputs = [preferences.$levelHUD, preferences.$headphonesNotice, preferences.$clipboardEnabled, preferences.$clipboardNotice]
+            .map { $0.dropFirst().map { _ in () }.eraseToAnyPublisher() }
+        Publishers.MergeMany(inputs + [preferences.$clipboardLimit.dropFirst().map { _ in () }.eraseToAnyPublisher(),
+                                       preferences.$clipboardExpiryHours.dropFirst().map { _ in () }.eraseToAnyPublisher(),
+                                       preferences.$clipboardIgnoredApps.dropFirst().map { _ in () }.eraseToAnyPublisher()])
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in self?.syncSystemInputs() }
+            .store(in: &subscriptions)
     }
 
     func start() {
@@ -299,6 +348,7 @@ enum IslandNotice: Equatable {
         meetingTask?.cancel()
         calls.stop()
         screenshots.stop(); downloads.stop(); powerMonitor.stop()
+        keyTap.configure(KeyTap.Options()); headphones.stop()
         setAgentServer(running: false)
     }
 
@@ -350,6 +400,66 @@ enum IslandNotice: Equatable {
         guard !keepAwakeStartedLow else { return }
         awakeLog.info("battery cutoff level=\(level)")
         stopKeepAwake()
+    }
+
+    // MARK: Keys, headphones and clipboard
+
+    /// The key tap exists only while the HUD or the clipboard is on, the Bluetooth listener only
+    /// while the headset notice is on.
+    private func syncSystemInputs() {
+        clipboard.limit = preferences.clipboardLimit
+        clipboard.expiryHours = preferences.clipboardExpiryHours
+        clipboard.ignoredApps = preferences.clipboardIgnoredApps
+        if preferences.clipboardEnabled { clipboard.prune() }
+        else if !clipboard.entries.isEmpty { clipboard.eraseAll() }
+        if !preferences.clipboardEnabled && shelfSection == .clips { shelfSection = .files }
+        // Copied items live on the shelf, so the clipboard waits while the shelf is off.
+        let options = KeyTap.Options(levels: preferences.levelHUD, copy: preferences.clipboardEnabled && preferences.shelfEnabled)
+        let granted = keyTap.configure(options)
+        if accessibilityMissing != !granted { accessibilityMissing = !granted }
+        if !granted && !accessibilityAsked {
+            accessibilityAsked = true
+            keyLog.info("accessibility missing, asking again")
+            KeyTap.requestTrust()
+        }
+        // Accessibility changes post this notification; it is only observed while waiting for it.
+        if !granted, accessibilityObserver == nil {
+            accessibilityObserver = DistributedNotificationCenter.default()
+                .publisher(for: Notification.Name("com.apple.accessibility.api"))
+                .delay(for: .milliseconds(600), scheduler: RunLoop.main)
+                .sink { [weak self] _ in self?.syncSystemInputs() }
+        } else if granted { accessibilityObserver = nil }
+        if preferences.headphonesNotice != headphonesRunning {
+            headphonesRunning = preferences.headphonesNotice
+            if headphonesRunning { headphones.start() } else { headphones.stop(); headphone = nil }
+        }
+    }
+
+    /// Asks for Accessibility from the settings, when turning on a feature that needs it.
+    func requestAccessibility() {
+        KeyTap.requestTrust()
+        syncSystemInputs()
+    }
+
+    private func showLevel(_ level: SystemLevel) {
+        hud = level
+        hudTask?.cancel()
+        hudTask = Task { [weak self] in
+            do { try await Task.sleep(nanoseconds: 1_500_000_000) } catch { return }
+            self?.hud = nil
+        }
+    }
+
+    private func headphoneConnected(_ device: HeadphoneDevice, fresh: Bool) {
+        headphone = device
+        if fresh { showNotice(.headphones(device), seconds: 4) }
+        else if case .headphones(let shown) = notice, shown.address == device.address { notice = .headphones(device) }
+    }
+
+    /// One fresh battery reading when the compact hover opens on the headset.
+    private func refreshHeadphone() {
+        guard let address = headphone?.address, let device = headphones.read(address: address), device != headphone else { return }
+        headphone = device
     }
 
     // MARK: Calls
@@ -486,6 +596,7 @@ enum IslandNotice: Equatable {
         if preferences.powerNotice || preferences.powerChargedNotice || preferences.powerLowNotice { powerMonitor.start() }
         else { powerMonitor.stop() }
         if !preferences.shelfEnabled && page == .shelf { page = .music }
+        syncSystemInputs()
     }
 
     /// Where screencapture saves, from its own preferences; the Desktop by default.

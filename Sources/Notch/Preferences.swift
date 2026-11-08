@@ -52,6 +52,16 @@ import NotchCore
     @Published var powerNotice: Bool { didSet { defaults.set(powerNotice, forKey: "powerNotice") } }
     @Published var powerChargedNotice: Bool { didSet { defaults.set(powerChargedNotice, forKey: "powerChargedNotice") } }
     @Published var powerLowNotice: Bool { didSet { defaults.set(powerLowNotice, forKey: "powerLowNotice") } }
+    /// Volume and brightness keys show their level on the island instead of the macOS HUD.
+    @Published var levelHUD: Bool { didSet { defaults.set(levelHUD, forKey: "levelHUD") } }
+    @Published var headphonesNotice: Bool { didSet { defaults.set(headphonesNotice, forKey: "headphonesNotice") } }
+    /// Keeps what is copied with Command-C/X in the shelf's second section.
+    @Published var clipboardEnabled: Bool { didSet { defaults.set(clipboardEnabled, forKey: "clipboardEnabled") } }
+    @Published var clipboardLimit: Int { didSet { defaults.set(clipboardLimit, forKey: "clipboardLimit") } }
+    @Published var clipboardExpiryHours: Int { didSet { defaults.set(clipboardExpiryHours, forKey: "clipboardExpiryHours") } }
+    @Published var clipboardNotice: Bool { didSet { defaults.set(clipboardNotice, forKey: "clipboardNotice") } }
+    /// Bundle identifiers whose copies are never kept.
+    @Published var clipboardIgnoredApps: [String] { didSet { defaults.set(clipboardIgnoredApps, forKey: "clipboardIgnoredApps") } }
     /// Quick-access durations in minutes, shown as chips in the Keep Awake tab.
     @Published var keepAwakePresets: [Int] { didSet { defaults.set(keepAwakePresets, forKey: "keepAwakePresets") } }
     /// Duration used by the play button; zero means no time limit.
@@ -87,6 +97,9 @@ import NotchCore
                                      "shelfShowCollapsed": true, "screenshotsToShelf": false, "screenshotNotice": true,
                                      "screenshotRecordings": false, "downloadsNotify": false, "downloadsToShelf": false,
                                      "powerNotice": true, "powerChargedNotice": true, "powerLowNotice": false,
+                                     "levelHUD": false, "headphonesNotice": false, "clipboardEnabled": false,
+                                     "clipboardLimit": 20, "clipboardExpiryHours": 24, "clipboardNotice": false,
+                                     "clipboardIgnoredApps": ClipboardPolicy.defaultIgnoredApps,
                                      "keepAwakePresets": KeepAwakePresets.defaults, "keepAwakeDefault": 60,
                                      "keepAwakeAllowDisplaySleep": false, "keepAwakeBatteryCutoff": true,
                                      "keepAwakeShowCollapsed": true, "keepAwakeCustomQuantity": 3,
@@ -137,6 +150,15 @@ import NotchCore
         powerNotice = defaults.bool(forKey: "powerNotice")
         powerChargedNotice = defaults.bool(forKey: "powerChargedNotice")
         powerLowNotice = defaults.bool(forKey: "powerLowNotice")
+        levelHUD = defaults.bool(forKey: "levelHUD")
+        headphonesNotice = defaults.bool(forKey: "headphonesNotice")
+        clipboardEnabled = defaults.bool(forKey: "clipboardEnabled")
+        let limit = defaults.integer(forKey: "clipboardLimit")
+        clipboardLimit = Clipboard.limitOptions.contains(limit) ? limit : 20
+        let clipExpiry = defaults.integer(forKey: "clipboardExpiryHours")
+        clipboardExpiryHours = ShelfExpiry.options.contains(clipExpiry) ? clipExpiry : 24
+        clipboardNotice = defaults.bool(forKey: "clipboardNotice")
+        clipboardIgnoredApps = defaults.stringArray(forKey: "clipboardIgnoredApps") ?? ClipboardPolicy.defaultIgnoredApps
         keepAwakePresets = KeepAwakePresets.normalized(defaults.array(forKey: "keepAwakePresets") as? [Int] ?? KeepAwakePresets.defaults)
         keepAwakeDefault = min(KeepAwakePresets.range.upperBound, max(0, defaults.integer(forKey: "keepAwakeDefault")))
         keepAwakeAllowDisplaySleep = defaults.bool(forKey: "keepAwakeAllowDisplaySleep")

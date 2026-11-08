@@ -15,15 +15,17 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.6.0</string>
+	<string>0.7.0</string>
 	<key>CFBundleVersion</key>
-	<string>6</string>
+	<string>7</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>O Notch controla a reprodução do Spotify e, se você habilitar, a mídia da aba ativa do navegador.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Com “Fones Bluetooth” ligado, o Notch mostra na ilha quando um fone conecta e a bateria dele.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>O Notch mostra a próxima reunião na ilha, com o link para entrar. Nada é alterado no seu calendário.</string>
 	<key>NSCalendarsUsageDescription</key>

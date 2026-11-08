@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 import NotchCore
 
 struct SettingsView: View {
@@ -31,6 +32,20 @@ struct SettingsView: View {
                         Toggle("Avisar bateria fraca (20% e 10%)", isOn: $preferences.powerLowNotice)
                         Text("Aparece na ilha por alguns segundos e some sozinho.").font(.caption).foregroundStyle(.secondary)
                     }
+                }
+                Section("Volume e brilho") {
+                    Toggle("Mostrar na ilha ao usar as teclas", isOn: Binding(get: { preferences.levelHUD }, set: { on in
+                        preferences.levelHUD = on
+                        if on && !KeyTap.trusted { model.requestAccessibility() }
+                    }))
+                    accessibilityStatus(active: preferences.levelHUD)
+                    Text("Substitui o aviso do macOS pelo nível na ilha. Shift e Option juntos fazem passos menores. Brilho vale para a tela do Mac; em monitores externos e saídas sem volume ajustável, as teclas seguem com o macOS. Precisa de Acessibilidade.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Section("Fones Bluetooth") {
+                    Toggle("Mostrar ao conectar, com a bateria", isOn: $preferences.headphonesNotice)
+                    Text("AirPods mostram cada lado e o estojo ao passar o mouse. A bateria é lida ao conectar e ao abrir a ilha, sem consultas periódicas, por isso não há aviso de bateria fraca do fone. O macOS pode pedir acesso ao Bluetooth.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 Section("Inicialização") {
                     Toggle("Iniciar ao fazer login", isOn: Binding(get: { login.enabled }, set: { login.setEnabled($0) }))
@@ -262,6 +277,41 @@ struct SettingsView: View {
                     Text("A bandeja guarda referências: o arquivo continua onde está e, se for apagado, o item some. Só imagens, links e textos vindos do navegador viram cópias numa pasta do Notch, apagadas junto com o item.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+                Section("Copiados") {
+                    Toggle("Guardar o que eu copiar com ⌘C", isOn: Binding(get: { preferences.clipboardEnabled }, set: { on in
+                        preferences.clipboardEnabled = on
+                        if on && !KeyTap.trusted { model.requestAccessibility() }
+                    }))
+                    accessibilityStatus(active: preferences.clipboardEnabled)
+                    Picker("Manter até", selection: $preferences.clipboardLimit) {
+                        ForEach(Clipboard.limitOptions, id: \.self) { Text("\($0) itens").tag($0) }
+                    }
+                    .disabled(!preferences.clipboardEnabled)
+                    Picker("Apagar depois de", selection: $preferences.clipboardExpiryHours) {
+                        ForEach(ShelfExpiry.options, id: \.self) { Text(ShelfExpiry.label(hours: $0)).tag($0) }
+                    }
+                    .disabled(!preferences.clipboardEnabled)
+                    Toggle("Avisar na ilha ao copiar", isOn: $preferences.clipboardNotice)
+                        .disabled(!preferences.clipboardEnabled)
+                    Text("Textos, links, cores e imagens copiados com ⌘C ou ⌘X ficam em Bandeja → Copiados. Sem consultas periódicas: o que for copiado pelo menu ou por botões só entra se for o último item quando você abrir a ilha. Itens fixados não expiram. Desligar apaga tudo.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .disabled(!preferences.shelfEnabled)
+                Section("Ignorar estes apps") {
+                    ForEach(preferences.clipboardIgnoredApps, id: \.self) { bundle in
+                        HStack {
+                            Text(Self.appName(bundle))
+                            Spacer()
+                            Button { preferences.clipboardIgnoredApps.removeAll { $0 == bundle } } label: { Image(systemName: "minus.circle") }
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel("Deixar de ignorar \(Self.appName(bundle))")
+                        }
+                    }
+                    Button("Adicionar app…") { addIgnoredApp() }
+                    Text("Nada copiado nesses apps entra nos Copiados. Conteúdo que o app marca como senha ou temporário nunca é guardado.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .disabled(!preferences.clipboardEnabled || !preferences.shelfEnabled)
                 Section("Prints") {
                     Toggle("Adicionar prints à bandeja", isOn: $preferences.screenshotsToShelf)
                     Toggle("Mostrar aviso na ilha", isOn: $preferences.screenshotNotice)
@@ -289,9 +339,35 @@ struct SettingsView: View {
                 Text("Sem anúncios, conta ou telemetria.").font(.callout)
             }.frame(maxWidth: .infinity, maxHeight: .infinity).tabItem { Label("Sobre", systemImage: "info.circle") }
         }
-        .frame(width: 620, height: 520)
+        .frame(width: 620, height: 560)
         .onAppear { login.refresh(); hooks.refresh(); model.refreshMeetings(); NSApp.activate(ignoringOtherApps: true) }
         .onChange(of: scenePhase) { _, phase in if phase == .active { login.refresh(); hooks.refresh(); model.refreshMeetings() } }
+    }
+
+    @ViewBuilder private func accessibilityStatus(active: Bool) -> some View {
+        if active && model.accessibilityMissing {
+            HStack {
+                Text("Autorize o Notch em Privacidade e Segurança → Acessibilidade.").font(.caption).foregroundStyle(.orange)
+                Spacer()
+                Button("Abrir Ajustes") { KeyTap.openSettings() }
+            }
+        }
+    }
+
+    private static func appName(_ bundle: String) -> String {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle) else { return bundle }
+        let name = FileManager.default.displayName(atPath: url.path)
+        return name.hasSuffix(".app") ? String(name.dropLast(4)) : name
+    }
+
+    private func addIgnoredApp() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.application]
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        panel.allowsMultipleSelection = true
+        guard panel.runModal() == .OK else { return }
+        let bundles = panel.urls.compactMap { Bundle(url: $0)?.bundleIdentifier }
+        preferences.clipboardIgnoredApps = Array(NSOrderedSet(array: preferences.clipboardIgnoredApps + bundles)) as? [String] ?? preferences.clipboardIgnoredApps
     }
 
     private enum HoverStyle { case compact, expand, none }

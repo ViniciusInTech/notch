@@ -2,7 +2,7 @@
   <img src="Resources/AppIcon.png" width="112" alt="Ícone do Notch: uma ilha com ondas em tons de azul e lilás">
   <h1>Notch</h1>
   <p><strong>Sua música, seu tempo e seus arquivos, no lugar certo.</strong></p>
-  <p>Uma ilha dinâmica para macOS, com controles de música, Pomodoro, bandeja de arquivos, próxima reunião, avisos de assistentes de código e modo para manter o Mac acordado.<br>Discreta, personalizável e sem anúncios.</p>
+  <p>Uma ilha dinâmica para macOS, com controles de música, Pomodoro, bandeja de arquivos e copiados, próxima reunião, avisos de assistentes de código, volume e brilho, fones Bluetooth e modo para manter o Mac acordado.<br>Discreta, personalizável e sem anúncios.</p>
   <p>macOS 14+ · Swift · SwiftUI + AppKit · Uso não comercial</p>
   <p>
     <a href="#por-que-criei-o-notch">A história</a> ·
@@ -175,6 +175,9 @@ Ao terminar, um único som avisa o que chegou durante a chamada.
 - **Bandeja de arquivos:** arraste arquivos até o notch e puxe de volta em qualquer tela; guarda só referências, sai da bandeja ao soltar e expira sozinha.
 - **Prints e downloads:** opcionais, entram na bandeja ou avisam na ilha assim que ficam prontos.
 - **Carregador:** mostra o nível ao conectar ou desconectar, carga completa e, se quiser, bateria fraca, por alguns segundos.
+- **Volume e brilho na ilha:** opcional, as teclas mostram o nível na ilha no lugar do aviso do macOS.
+- **Fones Bluetooth:** opcional, avisa ao conectar com a bateria; AirPods mostram cada lado e o estojo no hover.
+- **Copiados:** opcional, guarda textos, links, cores e imagens copiados com ⌘C na bandeja, com itens fixados e apps ignorados.
 - **Atividades simultâneas:** música e contagem continuam ao trocar de aba.
 - **Ondas nas cores da capa:** animação decorativa, sem capturar ou analisar áudio.
 - **Configurações nativas:** iniciar no login, reduzir movimento e som ao concluir.
@@ -358,6 +361,25 @@ Em Macs com bateria, **Configurações → Geral → Carregador** mostra o níve
 conectar ou desconectar, a carga completa e, se você ligar, bateria fraca a 20% e
 10%. Cada aviso aparece por alguns segundos e some sozinho.
 
+### Volume, brilho, fones e copiados
+
+Em **Configurações → Geral**, **Volume e brilho** troca o aviso do macOS pelo
+nível na ilha, que cresce só para os lados por um instante. Precisa de
+Acessibilidade (Privacidade e Segurança → Acessibilidade); Shift e Option juntos
+fazem passos menores. O brilho vale para a tela do Mac; saídas de áudio sem volume
+ajustável e monitores externos continuam com o macOS.
+
+**Fones Bluetooth** avisa quando um fone conecta, com a bateria. Passando o
+mouse, AirPods mostram esquerdo, direito e estojo. A bateria só é lida ao
+conectar e ao abrir a ilha, por isso não há aviso de bateria fraca do fone.
+
+Em **Configurações → Bandeja → Copiados**, o Notch guarda o que você copia com
+⌘C ou ⌘X, também com Acessibilidade. Não há consulta periódica à área de
+transferência: o que for copiado pelo menu ou por um botão só entra se ainda for
+o último item quando a ilha abrir. Conteúdo marcado como senha e apps da lista
+de ignorados (gerenciadores de senha, por padrão) nunca entram. Desligar apaga
+tudo.
+
 ## Compilar e executar
 
 Instale Swift 6 e as Command Line Tools (`xcode-select --install`) ou use o Xcode.
@@ -419,8 +441,11 @@ aberto, e o navegador só é consultado quando a integração está habilitada e
 está aberto. As consultas param durante a suspensão do Mac; respostas de
 automação não bloqueiam a interface. Capas têm limites de download e cache.
 
-Chamadas, energia, pastas observadas e calendário usam notificações do próprio
-macOS, sem consultas periódicas, e só existem com as opções ligadas. A agenda
+Chamadas, energia, pastas observadas, Bluetooth e calendário usam notificações do
+próprio macOS, sem consultas periódicas, e só existem com as opções ligadas. As
+teclas de volume e brilho passam por um event tap numa thread própria, que só
+existe com o HUD ou os Copiados ligados. A digitação comum não chega ao Notch: as
+teclas só são vistas enquanto o Command está pressionado, para reconhecer ⌘C e ⌘X. A agenda
 agenda uma única espera até a próxima mudança da reunião.
 
 O consumo real varia conforme o Mac e as integrações ativas. Não há promessa de

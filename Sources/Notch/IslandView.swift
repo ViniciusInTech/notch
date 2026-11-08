@@ -14,7 +14,7 @@ private let lowTint = Color(red: 1, green: 0.41, blue: 0.38)
 /// What each side of the collapsed island shows; changing it swaps the view with a scale and blur transition.
 private enum CompactSlot: Hashable {
     case artwork, waves, ring, time, music, timer, check, completionText, warning, authorize, agent, agentLabel, awake, awakeTime
-    case meeting, meetingTime, call, callLabel, shelf, shelfCount, notice, noticeLabel
+    case meeting, meetingTime, call, callLabel, shelf, shelfCount, notice, noticeLabel, levelIcon, levelBar
 }
 
 struct IslandView: View {
@@ -123,12 +123,21 @@ struct IslandView: View {
             HStack(spacing: 0) {
                 tabSwitcher.frame(maxWidth: .infinity, alignment: .leading)
                 Color.clear.frame(width: geometry.notchWidth)
-                actions.frame(maxWidth: .infinity, alignment: .trailing)
+                ZStack(alignment: .trailing) {
+                    if let level = model.hud {
+                        HStack(spacing: 8) { LevelGlyph(level: level, reduce: reduce); LevelBar(level: level, reduce: reduce) }
+                            .transition(reduce ? .opacity : AnyTransition(.blurReplace))
+                    } else {
+                        actions.transition(reduce ? .opacity : AnyTransition(.blurReplace))
+                    }
+                }
+                .animation(reduce ? nil : .spring(response: 0.3, dampingFraction: 0.8), value: model.hud == nil)
+                .frame(maxWidth: .infinity, alignment: .trailing)
             }
             .padding(.horizontal, 14)
             .frame(width: geometry.expandedWidth)
             .reveal(geometry.expandedContentVisible, order: 0, reduce: reduce)
-        } else if model.compactShown, let panel = model.compactPanel {
+        } else if model.compactShown && model.hud == nil, let panel = model.compactPanel {
             CompactBand(panel: panel, model: model, preferences: preferences, artwork: artwork,
                         notchWidth: geometry.notchWidth, reduce: reduce)
                 .frame(width: geometry.compactWidth)
@@ -150,6 +159,7 @@ struct IslandView: View {
 
     private var leftSlot: CompactSlot? {
         guard model.active else { return nil }
+        if model.hud != nil { return .levelIcon }
         if model.agentInIsland { return .agent }
         if model.callNoticeVisible { return .call }
         if model.notice != nil { return .notice }
@@ -165,6 +175,7 @@ struct IslandView: View {
 
     private var rightSlot: CompactSlot? {
         guard model.active else { return nil }
+        if model.hud != nil { return .levelBar }
         if model.agentInIsland { return .agentLabel }
         if model.callNoticeVisible { return .callLabel }
         if model.notice != nil { return .noticeLabel }
@@ -184,7 +195,7 @@ struct IslandView: View {
     /// next to the waves or the time.
     private var cupBadge: EarSide? {
         guard model.keepAwakeVisible, !model.completionVisible, !model.showsAttention, !model.agentInIsland,
-              !model.callNoticeVisible, model.notice == nil,
+              !model.callNoticeVisible, model.notice == nil, model.hud == nil,
               !(model.activityOrder.items.isEmpty && model.meeting == nil) else { return nil }
         return .right
     }
@@ -192,14 +203,14 @@ struct IslandView: View {
     /// The shelf beside another activity: a small tray with the count on the right ear.
     private var shelfBadge: Bool {
         guard model.shelfVisible, !model.completionVisible, !model.showsAttention, !model.agentInIsland,
-              !model.callNoticeVisible, model.notice == nil else { return false }
+              !model.callNoticeVisible, model.notice == nil, model.hud == nil else { return false }
         return !model.activityOrder.items.isEmpty || model.meeting != nil || model.keepAwakeVisible
     }
 
     /// The meeting beside music or a timer: a small calendar with the minutes left, like the cup.
     private var meetingBadge: Bool {
         model.meeting != nil && !model.activityOrder.items.isEmpty && !model.completionVisible
-            && !model.showsAttention && !model.agentInIsland && !model.callNoticeVisible && model.notice == nil
+            && !model.showsAttention && !model.agentInIsland && !model.callNoticeVisible && model.notice == nil && model.hud == nil
     }
 
     private func ear(_ slot: CompactSlot?, cup: Bool, meeting: Bool = false, shelf: Bool = false) -> some View {
@@ -340,6 +351,10 @@ struct IslandView: View {
             if let notice = model.notice { NoticeLeading(notice: notice, shelf: model.shelf) }
         case .noticeLabel:
             if let notice = model.notice { NoticeTrailing(notice: notice) }
+        case .levelIcon:
+            if let level = model.hud { LevelGlyph(level: level, reduce: reduce) }
+        case .levelBar:
+            if let level = model.hud { LevelBar(level: level, reduce: reduce) }
         }
     }
 
@@ -444,7 +459,8 @@ struct IslandView: View {
             if model.shelfDropTarget {
                 DropPanel(count: model.shelf.items.count).transition(panelTransition)
             } else if model.page == .shelf {
-                ShelfPanel(model: model, shelf: model.shelf, visible: visible, reduce: reduce).transition(panelTransition)
+                ShelfPanel(model: model, shelf: model.shelf, clipboard: model.clipboard, clipsEnabled: preferences.clipboardEnabled,
+                           visible: visible, reduce: reduce).transition(panelTransition)
             } else if model.page == .timer {
                 PomodoroPanel(model: model, preferences: preferences, visible: visible, reduce: reduce).transition(panelTransition)
             } else if model.page == .keepAwake {
@@ -1563,6 +1579,13 @@ private struct CompactBand: View {
             HStack(spacing: 7) {
                 ForEach(model.shelf.items.prefix(4)) { item in ShelfThumb(item: item, shelf: model.shelf, size: 22) }
             }
+        case .headphones:
+            if let device = model.headphone {
+                HStack(spacing: 8) {
+                    HeadphoneGlyph(device: device, size: 14)
+                    Text(device.name).font(.system(size: 11.5, weight: .semibold)).lineLimit(1)
+                }
+            }
         case .meeting:
             if let meeting = model.meeting {
                 HStack(spacing: 8) {
@@ -1643,6 +1666,21 @@ private struct CompactBand: View {
                 }
                 iconButton("power", size: 12, label: "Desligar") { model.stopKeepAwake() }
             }
+        case .headphones:
+            if let battery = model.headphone?.battery {
+                HStack(spacing: 9) {
+                    if battery.hasSides {
+                        if let left = battery.left { part("E", left) }
+                        if let right = battery.right { part("D", right) }
+                        if let level = battery.caseLevel { part("Estojo", level) }
+                    } else if let single = battery.single {
+                        HeadphoneLevel(percent: single)
+                    } else {
+                        Text("Sem leitura de bateria").font(.system(size: 10)).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.trailing, 4)
+            }
         case .meeting:
             HStack(spacing: 4) {
                 if model.meeting?.meeting.link != nil {
@@ -1654,6 +1692,13 @@ private struct CompactBand: View {
                 iconButton("xmark", size: 11, label: "Dispensar") { model.dismissMeeting() }
             }
         }
+    }
+
+    private func part(_ label: String, _ percent: Int) -> some View {
+        (Text(label + " ").foregroundColor(.secondary).font(.system(size: 10, weight: .medium))
+         + Text("\(percent)").foregroundColor(percent <= 10 ? lowTint : .white).font(.system(size: 11.5, weight: .semibold)))
+            .monospacedDigit()
+            .accessibilityLabel("\(label == "E" ? "Esquerdo" : label == "D" ? "Direito" : label) \(percent)%")
     }
 
     private func dropZone<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
@@ -1787,18 +1832,71 @@ private struct ShelfDragHandle: NSViewRepresentable {
     }
 }
 
-/// The shelf tab of the open island: items in a row, then share and clear.
+/// The shelf tab of the open island: items in a row, then share and clear. With the clipboard on,
+/// a switch on top shows what was copied instead.
 private struct ShelfPanel: View {
     @ObservedObject var model: AppModel
     @ObservedObject var shelf: ShelfStore
+    @ObservedObject var clipboard: ClipboardStore
+    let clipsEnabled: Bool
     let visible: Bool
     let reduce: Bool
 
+    private var showsClips: Bool { clipsEnabled && model.shelfSection == .clips }
+
     var body: some View {
+        VStack(spacing: 6) {
+            if clipsEnabled { sectionBar.reveal(visible, order: 1, reduce: reduce) }
+            ZStack {
+                if showsClips { clips.transition(.opacity) } else { files.transition(.opacity) }
+            }
+            .animation(reduce ? nil : .easeOut(duration: 0.15), value: showsClips)
+            .frame(maxHeight: .infinity)
+        }
+        .frame(maxHeight: .infinity)
+    }
+
+    private var sectionBar: some View {
+        HStack(spacing: 6) {
+            HStack(spacing: 0) {
+                sectionButton("Arquivos", count: shelf.items.count, section: .files)
+                sectionButton("Copiados", count: clipboard.entries.count, section: .clips)
+            }
+            .padding(2)
+            .background(.white.opacity(0.08), in: Capsule())
+            Spacer(minLength: 4)
+            if showsClips && clipboard.entries.contains(where: { !$0.pinned }) {
+                Button("Limpar") { clipboard.clear() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 10.5, weight: .semibold)).foregroundStyle(.white.opacity(0.6))
+                    .help("Remove os copiados que não estão fixados")
+            }
+        }
+        .frame(height: 20)
+    }
+
+    private func sectionButton(_ title: String, count: Int, section: ShelfSection) -> some View {
+        let selected = model.shelfSection == section
+        return Button {
+            withAnimation(reduce ? nil : .spring(response: 0.3, dampingFraction: 0.8)) { model.shelfSection = section }
+        } label: {
+            Text(count > 0 ? "\(title) · \(count)" : title)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(selected ? Color.white : Color.white.opacity(0.55))
+                .padding(.horizontal, 9).frame(height: 16)
+                .background(selected ? Color.white.opacity(0.18) : .clear, in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(title), \(count)")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    @ViewBuilder private var files: some View {
         HStack(spacing: 10) {
             if shelf.items.isEmpty {
-                Image(systemName: "tray").font(.system(size: 28, weight: .light)).foregroundStyle(shelfTint)
-                    .frame(width: 50, height: 50)
+                Image(systemName: "tray").font(.system(size: clipsEnabled ? 22 : 28, weight: .light)).foregroundStyle(shelfTint)
+                    .frame(width: clipsEnabled ? 36 : 50, height: clipsEnabled ? 36 : 50)
                     .reveal(visible, order: 1, reduce: reduce)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Bandeja vazia").font(.system(size: 13.5, weight: .semibold))
@@ -1834,6 +1932,292 @@ private struct ShelfPanel: View {
         }
         .frame(maxHeight: .infinity)
     }
+
+    @ViewBuilder private var clips: some View {
+        if clipboard.entries.isEmpty {
+            HStack(spacing: 10) {
+                Image(systemName: "doc.on.clipboard").font(.system(size: 22, weight: .light)).foregroundStyle(shelfTint)
+                    .frame(width: 36, height: 36)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Nada copiado ainda").font(.system(size: 13.5, weight: .semibold))
+                    Text("Use ⌘C em qualquer app. Clique num item para copiar de novo.")
+                        .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2)
+                }
+                Spacer(minLength: 0)
+            }
+            .reveal(visible, order: 2, reduce: reduce)
+        } else {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(clipboard.entries) { entry in ClipCard(entry: entry, clipboard: clipboard, reduce: reduce) }
+                }
+            }
+            .reveal(visible, order: 2, reduce: reduce)
+        }
+    }
+}
+
+/// One copied item. A click copies it again, dragging drops it into another app, and the hover
+/// shows pin and remove.
+private struct ClipCard: View {
+    let entry: ClipEntry
+    @ObservedObject var clipboard: ClipboardStore
+    let reduce: Bool
+    @StateObject private var state = ClipCardState()
+
+    var body: some View {
+        Button {
+            clipboard.copy(entry)
+            state.flash()
+        } label: {
+            content
+                .frame(width: 66, height: 52, alignment: .topLeading)
+                .background(Color.white.opacity(state.hovering ? 0.14 : 0.08), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(.white.opacity(state.hovering ? 0.5 : 0), lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .overlay { if state.copied { copiedBadge } }
+                .contentShape(RoundedRectangle(cornerRadius: 9))
+        }
+        .buttonStyle(PressableStyle())
+        .overlay(alignment: .topTrailing) { corner }
+        .onHover { inside in withAnimation(.easeOut(duration: 0.12)) { state.hovering = inside } }
+        .onDrag { provider }
+        .contextMenu {
+            Button("Copiar") { clipboard.copy(entry) }
+            Button(entry.pinned ? "Desafixar" : "Fixar") { clipboard.togglePin(entry.id) }
+            Divider()
+            Button("Remover") { clipboard.remove(entry.id) }
+        }
+        .help(entry.text.map { String($0.prefix(300)) } ?? "Imagem")
+        .accessibilityLabel(accessibility)
+        .accessibilityHint("Copia de novo")
+    }
+
+    @ViewBuilder private var content: some View {
+        switch entry.kind {
+        case .image:
+            ZStack(alignment: .bottomLeading) {
+                if let image = clipboard.thumbnail(for: entry) {
+                    Image(nsImage: image).resizable().scaledToFill().frame(width: 66, height: 52).clipped()
+                } else {
+                    Image(systemName: "photo").font(.system(size: 16)).foregroundStyle(.secondary).frame(width: 66, height: 52)
+                }
+                meta.padding(.horizontal, 5).padding(.vertical, 2).background(.black.opacity(0.55))
+            }
+        case .color:
+            VStack(alignment: .leading, spacing: 4) {
+                RoundedRectangle(cornerRadius: 5).fill(Color(hex: entry.text ?? "") ?? .gray).frame(width: 20, height: 20)
+                    .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.white.opacity(0.2)))
+                Text(entry.text ?? "").font(.system(size: 9, design: .monospaced)).lineLimit(1)
+            }
+            .padding(6)
+        case .link:
+            VStack(alignment: .leading, spacing: 2) {
+                Image(systemName: "globe").font(.system(size: 10, weight: .semibold)).foregroundStyle(meetingTint)
+                Text(URL(string: entry.text ?? "")?.host ?? entry.text ?? "")
+                    .font(.system(size: 9, weight: .semibold)).foregroundStyle(meetingTint).lineLimit(2)
+                Spacer(minLength: 0)
+                meta
+            }
+            .padding(6)
+        case .text:
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "").font(.system(size: 9)).lineLimit(3)
+                Spacer(minLength: 0)
+                meta
+            }
+            .padding(6)
+        }
+    }
+
+    private var meta: some View {
+        Text(entry.pinned ? "Fixado" : [entry.sourceName, age].compactMap { $0 }.joined(separator: " · "))
+            .font(.system(size: 7.5)).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
+    }
+
+    private var age: String {
+        let minutes = Int(Date().timeIntervalSince(entry.addedAt) / 60)
+        if minutes < 1 { return "agora" }
+        if minutes < 60 { return "\(minutes) min" }
+        if minutes < 1440 { return "\(minutes / 60) h" }
+        return "\(minutes / 1440) d"
+    }
+
+    @ViewBuilder private var corner: some View {
+        if state.hovering {
+            HStack(spacing: 2) {
+                miniButton(entry.pinned ? "pin.slash.fill" : "pin.fill", label: entry.pinned ? "Desafixar" : "Fixar") { clipboard.togglePin(entry.id) }
+                miniButton("xmark", label: "Remover") { clipboard.remove(entry.id) }
+            }
+            .padding(3)
+            .transition(.opacity)
+        } else if entry.pinned {
+            Image(systemName: "pin.fill").font(.system(size: 7.5, weight: .bold)).foregroundStyle(attentionTint)
+                .padding(5).accessibilityHidden(true)
+        }
+    }
+
+    private func miniButton(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: 7.5, weight: .bold))
+                .frame(width: 16, height: 16)
+                .background(Circle().fill(.black.opacity(0.75)))
+        }
+        .buttonStyle(PressableStyle())
+        .help(label)
+        .accessibilityLabel(label)
+    }
+
+    private var copiedBadge: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 9).fill(.black.opacity(0.7))
+            Label("Copiado", systemImage: "checkmark").font(.system(size: 9.5, weight: .semibold)).foregroundStyle(doneTint)
+        }
+        .transition(.opacity)
+    }
+
+    private var provider: NSItemProvider {
+        switch entry.kind {
+        case .image:
+            if let url = clipboard.fileURL(entry), let provider = NSItemProvider(contentsOf: url) { return provider }
+            return NSItemProvider()
+        case .link:
+            if let text = entry.text, let url = URL(string: text) { return NSItemProvider(object: url as NSURL) }
+            return NSItemProvider(object: (entry.text ?? "") as NSString)
+        case .text, .color:
+            return NSItemProvider(object: (entry.text ?? "") as NSString)
+        }
+    }
+
+    private var accessibility: String {
+        switch entry.kind {
+        case .image: return "Imagem copiada"
+        case .color: return "Cor \(entry.text ?? "")"
+        case .link: return "Link \(entry.text ?? "")"
+        case .text: return "Texto: \(String((entry.text ?? "").prefix(80)))"
+        }
+    }
+}
+
+@MainActor private final class ClipCardState: ObservableObject {
+    @Published var hovering = false
+    @Published var copied = false
+    private var task: Task<Void, Never>?
+
+    func flash() {
+        withAnimation(.easeOut(duration: 0.12)) { copied = true }
+        task?.cancel()
+        task = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 900_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.2)) { self?.copied = false }
+        }
+    }
+}
+
+private extension Color {
+    /// #RGB, #RRGGBB or #RRGGBBAA.
+    init?(hex: String) {
+        var digits = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard digits.hasPrefix("#") else { return nil }
+        digits.removeFirst()
+        if digits.count == 3 { digits = digits.map { "\($0)\($0)" }.joined() }
+        guard digits.count == 6 || digits.count == 8, let value = UInt64(digits, radix: 16) else { return nil }
+        let rgb = digits.count == 8 ? value >> 8 : value
+        let alpha = digits.count == 8 ? Double(value & 0xFF) / 255 : 1
+        self.init(.sRGB, red: Double((rgb >> 16) & 0xFF) / 255, green: Double((rgb >> 8) & 0xFF) / 255,
+                  blue: Double(rgb & 0xFF) / 255, opacity: alpha)
+    }
+}
+
+// MARK: - Levels and headphones
+
+/// Speaker or sun, matching the level; the symbol morphs between steps.
+private struct LevelGlyph: View {
+    let level: SystemLevel
+    let reduce: Bool
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(level.kind == .brightness ? brightnessTint : level.muted ? Color.white.opacity(0.5) : .white)
+            .contentTransition(reduce ? .identity : .symbolEffect(.replace))
+            .frame(width: 22, alignment: .center)
+            .accessibilityHidden(true)
+    }
+
+    private var symbol: String {
+        if level.kind == .brightness { return level.value < 0.5 ? "sun.min.fill" : "sun.max.fill" }
+        if level.muted || level.value == 0 { return "speaker.slash.fill" }
+        return level.value < 0.34 ? "speaker.wave.1.fill" : level.value < 0.67 ? "speaker.wave.2.fill" : "speaker.wave.3.fill"
+    }
+}
+
+/// A thin bar that springs to the new level.
+private struct LevelBar: View {
+    let level: SystemLevel
+    let reduce: Bool
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            Capsule().fill(.white.opacity(0.18))
+            Capsule().fill(level.kind == .brightness ? brightnessTint : .white)
+                .frame(width: 60 * level.shown)
+                .animation(reduce ? nil : .spring(response: 0.28, dampingFraction: 0.82), value: level.shown)
+        }
+        .frame(width: 60, height: 5)
+        .accessibilityElement()
+        .accessibilityLabel(level.kind == .brightness ? "Brilho" : level.muted ? "Sem som" : "Volume")
+        .accessibilityValue("\(Int((level.shown * 100).rounded()))%")
+    }
+}
+
+private let brightnessTint = Color(red: 1, green: 0.84, blue: 0.04)
+
+private struct HeadphoneGlyph: View {
+    let device: HeadphoneDevice
+    var size: CGFloat = 14
+
+    var body: some View {
+        Image(systemName: symbol).font(.system(size: size, weight: .semibold))
+            .foregroundStyle(lowBattery ? lowTint : .white)
+            .accessibilityLabel(device.name)
+    }
+
+    private var lowBattery: Bool { (device.battery.summary ?? 100) <= 10 }
+
+    private var symbol: String {
+        switch device.style {
+        case .airpods: return "airpods"
+        case .airpodsPro: return "airpodspro"
+        case .airpodsMax: return "airpodsmax"
+        case .beats: return "beats.headphones"
+        case .headphones: return "headphones"
+        }
+    }
+}
+
+/// A ring with the lowest battery and its percentage.
+private struct HeadphoneLevel: View {
+    let percent: Int
+
+    var body: some View {
+        HStack(spacing: 5) {
+            ZStack {
+                Circle().stroke(.white.opacity(0.2), lineWidth: 2.2)
+                Circle().trim(from: 0, to: Double(percent) / 100)
+                    .stroke(tint, style: StrokeStyle(lineWidth: 2.2, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+            .frame(width: 12, height: 12)
+            Text("\(percent)%").font(.system(size: 11.5, weight: .semibold)).monospacedDigit()
+                .foregroundStyle(percent <= 10 ? lowTint : .white)
+        }
+        .accessibilityElement()
+        .accessibilityLabel("Bateria do fone \(percent)%")
+    }
+
+    private var tint: Color { percent <= 10 ? lowTint : percent <= 20 ? attentionTint : doneTint }
 }
 
 // MARK: - Notices
@@ -1876,6 +2260,11 @@ private struct NoticeLeading: View {
             }
             .font(.system(size: 11.5, weight: .semibold))
             .lineLimit(1)
+        case .headphones(let device):
+            HeadphoneGlyph(device: device, size: 15)
+        case .copied:
+            Image(systemName: "doc.on.clipboard.fill").font(.system(size: 13, weight: .semibold)).foregroundStyle(shelfTint)
+                .accessibilityLabel("Área de transferência")
         }
     }
 }
@@ -1903,6 +2292,12 @@ private struct NoticeTrailing: View {
                     .font(.system(size: 13)).foregroundStyle(tint)
             }
             .foregroundStyle(tint == .white ? Color.white : tint)
+        case .headphones(let device):
+            if let percent = device.battery.summary { HeadphoneLevel(percent: percent) }
+            else { Text("Conectado").font(.system(size: 11.5, weight: .semibold)).foregroundStyle(.white.opacity(0.8)) }
+        case .copied(let kind):
+            Text(kind == .image ? "Imagem copiada" : "Copiado")
+                .font(.system(size: 11.5, weight: .semibold)).foregroundStyle(shelfTint).lineLimit(1).minimumScaleFactor(0.8)
         }
     }
 

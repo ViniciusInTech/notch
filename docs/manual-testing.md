@@ -44,6 +44,21 @@ verificados durante o desenvolvimento; repita-os para cada versão relevante.
 - [ ] Conferir tela cheia, Spaces e conectar/desconectar monitores.
 - [ ] Conferir o comportamento em tela sem notch.
 
+## Volume, brilho, fones e copiados
+
+- [ ] Ligar o HUD pede Acessibilidade; após autorizar, as teclas funcionam sem reiniciar o app.
+- [ ] Volume, mudo e brilho: o HUD do macOS não aparece, a ilha cresce para os lados e volta em 1,5 s.
+- [ ] Com música tocando, o nível substitui as orelhas sem mudar o tamanho; aberta, ocupa o lugar das ações.
+- [ ] Shift + Option fazem passos menores; segurar a tecla repete sem travar.
+- [ ] Saída HDMI ou monitor externo: a tecla volta para o macOS.
+- [ ] AirPods: conectar mostra o aviso com bateria; hover mostra esquerdo, direito e estojo.
+- [ ] Fone já conectado ao abrir o Notch não gera aviso.
+- [ ] ⌘C em texto, link, cor e imagem entra em Bandeja → Copiados; clique copia de novo sem duplicar.
+- [ ] Copiar pelo menu e abrir a ilha: o item entra se ainda for o último.
+- [ ] Copiar no 1Password/Senhas e conteúdo marcado como senha: nada entra.
+- [ ] Fixar, remover, Limpar (mantém fixados) e desligar a opção (apaga tudo, inclusive imagens).
+- [ ] Desligar HUD e Copiados encerra o event tap (sem thread dev.vinicius.Notch.keys).
+
 ## Reprodução e permissões
 
 - [ ] Reproduzir, pausar, anterior/próxima e seek no Spotify.

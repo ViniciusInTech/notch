@@ -105,6 +105,8 @@ Durações, sessões e início automático ficam em **Configurações… → Tim
 | Safari/Chrome | Automação para o navegador escolhido e JavaScript via Apple Events. |
 | Abrir no login | Iniciar ao fazer login; aprovação nos Itens de Início, se solicitada. |
 | Aviso visual do timer | Notificações do Notch, se desejar banners. |
+| Volume e brilho, Copiados | Acessibilidade, para ler as teclas de volume, brilho e ⌘C. |
+| Fones Bluetooth | Bluetooth, se o macOS pedir. |
 
 Essas funções não exigem Microfone, Gravação de Tela ou Acesso Total ao Disco.
 As ondas são decorativas e não capturam áudio.
@@ -119,6 +121,7 @@ As ondas são decorativas e não capturam áudio.
 | Navegador não responde | Navegador correto, aba ativa, mídia HTML5 e JavaScript via Apple Events habilitado. |
 | Permissão negada | Ajuste Automação e pressione **Tentar novamente**. |
 | App atualizado, mas interface antiga | Use **Quit** na versão anterior e abra a cópia nova em Aplicativos. |
+| HUD ou Copiados não reagem | Acessibilidade ligada para o Notch; após recompilar, remova e adicione o app de novo. |
 | Timer está correto, mas sem banner | Confira Notificações e os modos Foco/Não Perturbe do macOS. |
 
 Se continuar acontecendo, abra uma [issue](https://github.com/ViniciusInTech/notch/issues)
