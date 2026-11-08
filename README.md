@@ -177,7 +177,7 @@ Ao terminar, um único som avisa o que chegou durante a chamada.
 - **Carregador:** mostra o nível ao conectar ou desconectar, carga completa e, se quiser, bateria fraca, por alguns segundos.
 - **Volume e brilho na ilha:** opcional, as teclas mostram o nível na ilha no lugar do aviso do macOS.
 - **Fones Bluetooth:** opcional, avisa ao conectar com a bateria; AirPods mostram cada lado e o estojo no hover.
-- **Copiados:** opcional, guarda textos, links, cores e imagens copiados com ⌘C na bandeja, com itens fixados e apps ignorados.
+- **Copiados:** opcional, guarda textos, links, cores e imagens copiados com ⌘C na bandeja; um clique copia de novo, com itens fixados, prazo para expirar e apps ignorados.
 - **Atividades simultâneas:** música e contagem continuam ao trocar de aba.
 - **Ondas nas cores da capa:** animação decorativa, sem capturar ou analisar áudio.
 - **Configurações nativas:** iniciar no login, reduzir movimento e som ao concluir.
@@ -346,7 +346,8 @@ sozinhos.
 **Prints na bandeja** e **Avisar downloads** vêm desligados. Ao ligar, o macOS
 pede acesso à pasta das capturas de tela (Mesa, por padrão) ou à pasta
 Downloads. O Notch só observa essas pastas, sem consultas periódicas, e ignora
-downloads em andamento.
+downloads em andamento. Com **Incluir gravações de tela**, as gravações feitas
+pela Captura de Tela também entram na bandeja.
 
 ### Próxima reunião
 
@@ -379,6 +380,12 @@ transferência: o que for copiado pelo menu ou por um botão só entra se ainda 
 o último item quando a ilha abrir. Conteúdo marcado como senha e apps da lista
 de ignorados (gerenciadores de senha, por padrão) nunca entram. Desligar apaga
 tudo.
+
+Na aba **Bandeja → Copiados**, um clique copia o item de novo e arrastar solta o
+conteúdo em outro app. Passando o mouse, ou pelo menu de contexto, dá para
+**Fixar** ou **Remover**; itens fixados não expiram, e o botão de limpar só tira
+os não fixados. Os demais somem no prazo escolhido em **Apagar depois de**, e
+**Avisar na ilha ao copiar** mostra uma confirmação rápida a cada cópia.
 
 ## Compilar e executar
 
