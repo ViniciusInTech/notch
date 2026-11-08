@@ -16,6 +16,8 @@ import UserNotifications
     var panel: IslandPanelController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Writing to the Now Playing helper after it exits must fail with EPIPE, not kill the app silently.
+        signal(SIGPIPE, SIG_IGN)
         NSApp.setActivationPolicy(.accessory)
         Task { @MainActor in
             if await ApplicationMover.moveIfAccepted(preferences: Self.model.preferences) { return }
