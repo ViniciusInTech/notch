@@ -37,16 +37,21 @@ private let headphoneLog = Logger(subsystem: "dev.vinicius.Notch", category: "he
         return Self.describe(device)
     }
 
+    // IOBluetooth may call these on its own coordinator queue, so they hop to the main queue
+    // instead of asserting isolation, which traps off the main thread.
     @objc nonisolated private func deviceConnected(_ note: IOBluetoothUserNotification, fromDevice device: IOBluetoothDevice) {
-        MainActor.assumeIsolated { connect(device) }
+        nonisolated(unsafe) let device = device
+        DispatchQueue.main.async { MainActor.assumeIsolated { self.connect(device) } }
     }
 
     @objc nonisolated private func deviceDisconnected(_ note: IOBluetoothUserNotification, fromDevice device: IOBluetoothDevice) {
-        MainActor.assumeIsolated {
-            guard let address = device.addressString else { return }
-            disconnectNotifications.removeValue(forKey: address)?.unregister()
-            headphoneLog.info("disconnected")
-            disconnected?(address)
+        guard let address = device.addressString else { return }
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                self.disconnectNotifications.removeValue(forKey: address)?.unregister()
+                headphoneLog.info("disconnected")
+                self.disconnected?(address)
+            }
         }
     }
 
